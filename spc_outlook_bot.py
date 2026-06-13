@@ -34,6 +34,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,6 +92,7 @@ class PtsProduct:
     issued: str
     valid: str
     updated: str
+    source: str
     maps: dict[str, dict[str, tuple[tuple[tuple[float, float], ...], ...]]]
 
 
@@ -417,6 +419,134 @@ def fetch_pts_text_for_spec(spec: BundleSpec) -> str:
     return fetch_text(pts_url)
 
 
+def find_geojson_url(html: str, spec: BundleSpec) -> str | None:
+    match = re.search(r'href="([^"]*geojson\.zip)"', html, re.IGNORECASE)
+    if not match:
+        return None
+    return urllib.parse.urljoin(spec.page_url, html_unescape_light(match.group(1)))
+
+
+def fetch_geojson_product_for_spec(spec: BundleSpec) -> PtsProduct:
+    html = fetch_text(spec.page_url)
+    geojson_url = find_geojson_url(html, spec)
+    if not geojson_url:
+        raise BotError(f"{spec.name}: could not find SPC GeoJSON ZIP link")
+    with request(geojson_url, timeout=30, cache_bust=True) as response:
+        data = response.read()
+    return parse_geojson_zip(data, spec, geojson_url)
+
+
+def geojson_slug_for_map(map_label: str) -> str | None:
+    return {
+        "categorical": "cat",
+        "tornado": "torn",
+        "wind": "wind",
+        "hail": "hail",
+        "probabilistic": "prob",
+    }.get(map_label)
+
+
+def spec_supports_geojson(spec: BundleSpec) -> bool:
+    return any(geojson_slug_for_map(map_label) for map_label in spec.expected_order)
+
+
+def choose_geojson_member(names: list[str], spec: BundleSpec, map_label: str) -> str | None:
+    slug = geojson_slug_for_map(map_label)
+    if not slug:
+        return None
+    prefix = spec.key.replace("-", "")
+    candidates = [
+        name
+        for name in names
+        if name.lower().endswith(f"_{slug}.lyr.geojson")
+        and f"{prefix}otlk" in name.lower()
+    ]
+    dated = [name for name in candidates if re.search(r"_\d{8}_\d{4}_", name)]
+    if dated:
+        return sorted(dated)[-1]
+    if candidates:
+        return sorted(candidates)[-1]
+    return None
+
+
+def iso_compact(value: str) -> str:
+    if not value:
+        return ""
+    return value.replace("-", "").replace(":", "").replace("+00:00", "Z")
+
+
+def format_geojson_time(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    return parsed.strftime("%Y-%m-%d %H%MZ")
+
+
+def geojson_time_range(properties: dict[str, Any]) -> tuple[str, str, str]:
+    issue = str(properties.get("ISSUE_ISO") or properties.get("ISSUE") or "")
+    valid = str(properties.get("VALID_ISO") or properties.get("VALID") or "")
+    expire = str(properties.get("EXPIRE_ISO") or properties.get("EXPIRE") or "")
+    compact_valid = iso_compact(valid)
+    compact_expire = iso_compact(expire)
+    formatted_valid = format_geojson_time(valid)
+    formatted_expire = format_geojson_time(expire)
+    if formatted_valid and formatted_expire:
+        valid_range = f"{formatted_valid} - {formatted_expire}"
+    else:
+        valid_range = ""
+    return format_geojson_time(issue) or issue, valid_range, compact_valid or str(properties.get("VALID") or "")
+
+
+def parse_geojson_zip(data: bytes, spec: BundleSpec, geojson_url: str) -> PtsProduct:
+    try:
+        from shapely.geometry import shape
+    except Exception as exc:  # noqa: BLE001
+        raise BotError("SPC GeoJSON rendering requires shapely; install requirements.txt or use Docker") from exc
+
+    maps: dict[str, dict[str, list[Any]]] = {}
+    first_properties: dict[str, Any] = {}
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        names = archive.namelist()
+        for map_label in spec.expected_order:
+            member = choose_geojson_member(names, spec, map_label)
+            if not member:
+                continue
+            collection = json.loads(archive.read(member).decode("utf-8"))
+            label_geometries = maps.setdefault(map_label, {})
+            for feature in collection.get("features", []):
+                properties = feature.get("properties") or {}
+                if not first_properties:
+                    first_properties = dict(properties)
+                label = str(properties.get("LABEL") or "").strip()
+                geometry_dict = feature.get("geometry")
+                if not label or not geometry_dict:
+                    continue
+                geometry = shape(geometry_dict)
+                if geometry.is_empty:
+                    continue
+                label_geometries.setdefault(label, []).append(geometry)
+
+    if not maps:
+        raise BotError(f"{spec.name}: SPC GeoJSON ZIP did not contain expected outlook layers")
+
+    issued, valid, valid_start = geojson_time_range(first_properties)
+    stem = Path(urllib.parse.urlsplit(geojson_url).path).name.removesuffix("-geojson.zip")
+    product_id = f"geojson:{stem}:{valid_start or hashlib.sha1(data).hexdigest()[:12]}"
+    return PtsProduct(
+        spec=spec,
+        product_id=product_id,
+        title=spec.name,
+        issued=issued or str(first_properties.get("ISSUE") or ""),
+        valid=valid,
+        updated=issued or utc_now_iso(),
+        source="geojson",
+        maps={key: {label: tuple(geometries) for label, geometries in labels.items()} for key, labels in maps.items()},
+    )
+
+
 def is_pts_label(token: str) -> bool:
     return (
         token in RISK_ORDER
@@ -563,6 +693,7 @@ def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
         issued=issued,
         valid=valid,
         updated=issued or utc_now_iso(),
+        source="pts",
         maps=maps,
     )
 
@@ -602,6 +733,18 @@ def preview_title(spec: BundleSpec, map_label: str) -> str:
     else:
         detail = f"{map_label.title()} Probability"
     return f"{spec.name} - {detail}"
+
+
+def preview_source_footer(product: PtsProduct) -> str:
+    if product.source == "geojson":
+        return "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC GEOJSON - not an official SPC graphic"
+    return "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC PTS TEXT - not an official SPC graphic"
+
+
+def preview_source_badge(product: PtsProduct) -> str:
+    if product.source == "geojson":
+        return "FAST SPC GEOJSON RENDER"
+    return "FAST PTS PREVIEW"
 
 
 def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
@@ -656,8 +799,11 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
         polygons = map_polygons.get(label, ())
         if not polygons and label == "CIG1":
             polygons = map_polygons.get("CIG2", ())
-        for polygon in polygons:
-            geometry = ShapelyPolygon(polygon)
+        for polygon_or_geometry in polygons:
+            if hasattr(polygon_or_geometry, "geom_type"):
+                geometry = polygon_or_geometry
+            else:
+                geometry = ShapelyPolygon(polygon_or_geometry)
             if not geometry.is_valid:
                 geometry = geometry.buffer(0)
             if geometry.is_empty:
@@ -711,7 +857,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     fig.text(
         0.015,
         0.014,
-        "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC PTS TEXT - not an official SPC graphic",
+        preview_source_footer(product),
         fontsize=13,
         fontweight="bold",
         color="#b00020",
@@ -721,7 +867,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     fig.text(
         0.012,
         0.965,
-        "FAST PTS PREVIEW",
+        preview_source_badge(product),
         fontsize=15,
         fontweight="bold",
         color="#ffffff",
@@ -794,10 +940,26 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     return buffer.getvalue()
 
 
-def render_preview_bundle(spec: BundleSpec, pts_text: str | None = None) -> BundleSnapshot:
-    if pts_text is None:
-        pts_text = fetch_pts_text_for_spec(spec)
-    product = parse_pts_text(pts_text, spec)
+def render_preview_bundle(
+    spec: BundleSpec,
+    pts_text: str | None = None,
+    *,
+    custom_source: str = "geojson-first",
+) -> BundleSnapshot:
+    product: PtsProduct | None = None
+    if custom_source in {"geojson-first", "geojson-only"}:
+        try:
+            product = fetch_geojson_product_for_spec(spec)
+        except Exception:
+            if custom_source == "geojson-only":
+                raise
+            product = None
+    if product is None:
+        if custom_source == "geojson-first" and spec_supports_geojson(spec):
+            raise BotError(f"{spec.name}: SPC GeoJSON is not available yet")
+        if pts_text is None:
+            pts_text = fetch_pts_text_for_spec(spec)
+        product = parse_pts_text(pts_text, spec)
     images: list[MapImage] = []
     for map_label in spec.expected_order:
         data = render_pts_map_png(product, map_label)
@@ -805,7 +967,7 @@ def render_preview_bundle(spec: BundleSpec, pts_text: str | None = None) -> Bund
         images.append(
             MapImage(
                 label=map_label,
-                url=f"pts://{product.product_id}/{map_label}",
+                url=f"{product.source}://{product.product_id}/{map_label}",
                 filename=f"{spec.key}_fast_{map_label}.png",
                 content_type="image/png",
                 sha256=digest,
@@ -814,7 +976,7 @@ def render_preview_bundle(spec: BundleSpec, pts_text: str | None = None) -> Bund
         )
     return BundleSnapshot(
         spec=spec,
-        title=f"{spec.name} Fast PTS Preview",
+        title=f"{spec.name} Fast Custom Preview",
         updated=product.updated,
         product_id=f"preview:{product.product_id}",
         page_url=spec.page_url,
@@ -1089,7 +1251,7 @@ class OutlookBot:
         for spec in BUNDLES:
             try:
                 if render_mode_posts_preview(self.args.render_mode):
-                    preview = render_preview_bundle(spec)
+                    preview = render_preview_bundle(spec, custom_source=self.args.custom_source)
                     preview_key = f"{spec.key}:preview"
                     if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
                         self.handle_snapshot(
@@ -1121,7 +1283,11 @@ class OutlookBot:
                         if awips_id.upper().startswith("PTS") and raw_bulletin and raw_bulletin.strip()
                         else None
                     )
-                    preview = render_preview_bundle(spec, pts_text=pts_text)
+                    preview = render_preview_bundle(
+                        spec,
+                        pts_text=pts_text,
+                        custom_source=self.args.custom_source,
+                    )
                     self.handle_snapshot(preview, f"{reason}:preview", state_key=f"{spec.key}:preview")
                 if render_mode_posts_official(self.args.render_mode):
                     snapshot = snapshot_with_retries(
@@ -1254,6 +1420,12 @@ def build_parser() -> argparse.ArgumentParser:
             "what to post: official SPC PNGs only, custom PTS previews before official plots, "
             "custom previews only, or both"
         ),
+    )
+    parser.add_argument(
+        "--custom-source",
+        choices=("geojson-first", "geojson-only", "pts-only"),
+        default=os.getenv("SPC_CUSTOM_SOURCE", "geojson-first"),
+        help="geometry source for custom maps: official SPC GeoJSON first, GeoJSON only, or raw PTS only",
     )
     parser.add_argument(
         "--poll-seconds",

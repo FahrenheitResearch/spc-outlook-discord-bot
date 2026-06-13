@@ -2,7 +2,7 @@
 
 Post SPC outlook map bundles to Discord as soon as new outlook geometry is available.
 
-By default, this bot runs in `custom-only` mode: it renders fast SPC-styled maps from official SPC PTS text products, posts them as four bundled Discord messages, and does not use NOAA/NWS logos. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
+By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast SPC-styled maps from official SPC GeoJSON polygons for Day 1-3, uses PTS geometry for Day 4-8, posts four bundled Discord messages, and does not use NOAA/NWS logos. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
 
 Proof bundle: [docs/proof](docs/proof/index.html)
 
@@ -21,23 +21,31 @@ Each full current-set run becomes four image-only Discord messages:
 
 | Mode | Behavior |
 | --- | --- |
-| `custom-only` | Default. Posts fast custom maps rendered from official SPC PTS text. Keeps the output to four bundled messages. |
+| `custom-only` | Default. Posts fast custom maps rendered from official SPC geometry products. Keeps the output to four bundled messages. |
 | `custom-first` | Posts the fast PTS render immediately, then posts the official SPC image bundle when those files appear. |
 | `official-only` | Posts only the exact official SPC PNG/GIF files from the SPC web pages. Slower, but no custom rendering. |
 | `both` | Posts both products whenever a refresh runs. Mostly useful for testing. |
+
+## Custom Geometry Source
+
+| Source | Behavior |
+| --- | --- |
+| `geojson-first` | Default. Uses official SPC GeoJSON polygons for Day 1-3 and falls back to PTS only for products without GeoJSON, such as Day 4-8. |
+| `geojson-only` | Requires SPC GeoJSON. Useful for quality testing Day 1-3, but Day 4-8 is not available in this source. |
+| `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
 
 ## Why It Is Fast
 
 Fastest path:
 
-1. `nwws-rs` receives a `KWNS` PTS product such as `PTSDY1`.
-2. This bot reads the raw bulletin from the local SSE event.
-3. The PTS polygons are parsed immediately.
+1. `nwws-rs` receives a `KWNS` outlook product such as `PTSDY1`.
+2. The bot refreshes the matching SPC geometry product immediately.
+3. For Day 1-3, default custom rendering waits for the official SPC GeoJSON ZIP because it contains complete polygons. For Day 4-8, the bot uses PTS geometry.
 4. The bot renders the map bundle locally and posts it to Discord.
 
-That path does not wait for SPC's finished web PNG/GIF files. On the local proof run, all 16 current maps rendered in about 8 seconds total after fetching the current PTS text. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
+That path does not wait for SPC's finished web PNG/GIF plot images. On the local proof run, all 16 current maps rendered in about 6-8 seconds total once the geometry files were reachable. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
 
-Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. The exact delay varies by outlook cycle and by SPC web publishing timing.
+Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap, but it avoids the visible cutoff artifacts that raw PTS-only rendering can create.
 
 Fallback path:
 
@@ -64,6 +72,7 @@ Set:
 ```text
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 SPC_RENDER_MODE=custom-only
+SPC_CUSTOM_SOURCE=geojson-first
 ```
 
 Do a local proof run without posting:
@@ -118,7 +127,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS
 http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 ```
 
-`PTS` is the fastest trigger because it carries the outlook geometry. `SWO` discussion products can still trigger a refresh, but the bot may need to fetch the matching PTS text from SPC if the raw geometry was not in the event.
+`PTS` is the fastest trigger because it announces the outlook geometry product. In the default `geojson-first` source, Day 1-3 posting waits for the matching SPC GeoJSON ZIP so the filled polygons are complete. `SWO` discussion products can still trigger a refresh.
 
 ## Configuration
 
@@ -126,6 +135,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | --- | --- | --- |
 | `DISCORD_WEBHOOK_URL` | unset | Discord webhook destination. Required unless dry-running. |
 | `SPC_RENDER_MODE` | `custom-only` | `custom-only`, `custom-first`, `official-only`, or `both`. |
+| `SPC_CUSTOM_SOURCE` | `geojson-first` | `geojson-first`, `geojson-only`, or `pts-only`. |
 | `SPC_MESSAGE_CONTENT` | `none` | `none`, `short`, or `debug`. `none` posts image-only messages. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
 | `SPC_FETCH_ATTEMPTS` | `4` | Normal fetch retry count. |
@@ -150,7 +160,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 
 ## Public-Safety Boundary
 
-The fast maps are generated from official SPC PTS text products, but they are not official NOAA/NWS/SPC graphics. They are labeled as unofficial fast renders and intentionally omit NOAA/NWS logos. For life-safety decisions, check SPC/NWS directly.
+The fast maps are generated from official SPC geometry products, but they are not official NOAA/NWS/SPC graphics. They are labeled as unofficial fast renders and intentionally omit NOAA/NWS logos. For life-safety decisions, check SPC/NWS directly.
 
 Use `official-only` when your priority is exact SPC web graphics. Use `custom-only` when your priority is getting the official outlook geometry into Discord as quickly as practical.
 

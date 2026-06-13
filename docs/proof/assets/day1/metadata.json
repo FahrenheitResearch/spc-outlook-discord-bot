@@ -1,43 +1,43 @@
 {
   "bundle": "day1",
   "name": "SPC Day 1 Outlook",
-  "title": "SPC Day 1 Outlook Fast PTS Preview",
-  "updated": "1130 AM CDT SAT JUN 13 2026",
-  "product_id": "preview:PTSDY1:131630Z",
+  "title": "SPC Day 1 Outlook Fast Custom Preview",
+  "updated": "2026-06-13 1630Z",
+  "product_id": "preview:geojson:day1otlk_20260613_1630:20260613T163000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
-  "post_key": "3c47504181532a5b2313ae1e38b881df047b3bf61b3633329d01bd15ad003106",
+  "post_key": "6a0aa1cc5137e088943e8b88c670eb075e6a2f474b0f280d5bc98d916b2d78b8",
   "images": [
     {
       "label": "categorical",
-      "url": "pts://PTSDY1:131630Z/categorical",
+      "url": "geojson://geojson:day1otlk_20260613_1630:20260613T163000+0000/categorical",
       "filename": "day1_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "c6f5d48c4a0c71a1cef3bd16e67a340ab093571d16a3585201023b86ac91bf55",
-      "bytes": 409785
+      "sha256": "3d128073e18897a9134ef6fb5b3a5fa1dca7c326bf4abf568750be73e7ed4bbe",
+      "bytes": 428294
     },
     {
       "label": "tornado",
-      "url": "pts://PTSDY1:131630Z/tornado",
+      "url": "geojson://geojson:day1otlk_20260613_1630:20260613T163000+0000/tornado",
       "filename": "day1_fast_tornado.png",
       "content_type": "image/png",
-      "sha256": "a6fe6521af25ebfeed516a79e9d36139a8f9ee3a024617d7f7ef0318f12cdf0f",
-      "bytes": 340416
+      "sha256": "54cfe04783612f614677099e386300074bdb2aebfe2cf8f230c63272247d9c57",
+      "bytes": 344658
     },
     {
       "label": "wind",
-      "url": "pts://PTSDY1:131630Z/wind",
+      "url": "geojson://geojson:day1otlk_20260613_1630:20260613T163000+0000/wind",
       "filename": "day1_fast_wind.png",
       "content_type": "image/png",
-      "sha256": "ea0d194bb7896617c9d3debaae524c81ab05e211fabb43714c4710139fc36800",
-      "bytes": 371354
+      "sha256": "6b41771d82ef21912c7dfa432f997c6da33d646bb98d2ed742b22004aaee5756",
+      "bytes": 375822
     },
     {
       "label": "hail",
-      "url": "pts://PTSDY1:131630Z/hail",
+      "url": "geojson://geojson:day1otlk_20260613_1630:20260613T163000+0000/hail",
       "filename": "day1_fast_hail.png",
       "content_type": "image/png",
-      "sha256": "34cea50b90bff149302358f58a0317763f88f93566f9fd20834affd68cb2cadf",
-      "bytes": 362579
+      "sha256": "91735714a20199b412e998637a3c0c8f768701ba9827168f8611ab346d581715",
+      "bytes": 366808
     }
   ]
 }
