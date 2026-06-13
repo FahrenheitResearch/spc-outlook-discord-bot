@@ -394,6 +394,34 @@ DAY48_STYLE = {
     "day8": ("D8", "#8a4e26", "#5a3017"),
 }
 
+CIG_ORDER = ("CIG1", "CIG2", "CIG3")
+CIG_STYLE = {
+    "CIG1": ("Intensity 1", "///", 1.5),
+    "CIG2": ("Intensity 2", "xxx", 1.65),
+    "CIG3": ("Intensity 3", "+++", 1.8),
+}
+
+MAJOR_CITY_LABELS = (
+    ("Seattle", -122.33, 47.61, 0.35, 0.20),
+    ("San Francisco", -122.42, 37.77, 0.35, -0.28),
+    ("Los Angeles", -118.24, 34.05, 0.35, -0.28),
+    ("Las Vegas", -115.14, 36.17, 0.35, 0.18),
+    ("Phoenix", -112.07, 33.45, 0.35, -0.24),
+    ("Denver", -104.99, 39.74, 0.35, 0.18),
+    ("Dallas", -96.80, 32.78, 0.35, -0.25),
+    ("Houston", -95.37, 29.76, 0.35, -0.28),
+    ("Kansas City", -94.58, 39.10, 0.35, 0.18),
+    ("Minneapolis", -93.27, 44.98, 0.35, 0.20),
+    ("Chicago", -87.63, 41.88, 0.35, 0.18),
+    ("St Louis", -90.20, 38.63, 0.35, -0.28),
+    ("Memphis", -90.05, 35.15, 0.35, -0.26),
+    ("Atlanta", -84.39, 33.75, 0.35, -0.25),
+    ("Charlotte", -80.84, 35.23, 0.35, 0.18),
+    ("Washington", -77.04, 38.91, 0.35, -0.22),
+    ("New York", -74.01, 40.71, 0.35, 0.18),
+    ("Boston", -71.06, 42.36, 0.35, 0.18),
+)
+
 
 def pts_awips_for_spec(spec: BundleSpec) -> str:
     for awips in spec.awips_ids:
@@ -704,8 +732,8 @@ def preview_order_for_map(map_label: str) -> tuple[str, ...]:
     if map_label == "day4-8":
         return DAY48_ORDER
     if map_label in {"wind", "hail", "probabilistic"}:
-        return SEVERE_PROB_ORDER + ("CIG1",)
-    return PROB_ORDER + ("CIG1",)
+        return SEVERE_PROB_ORDER + CIG_ORDER
+    return PROB_ORDER + CIG_ORDER
 
 
 def preview_style_for_label(map_label: str, label: str) -> tuple[str, str, str]:
@@ -733,6 +761,49 @@ def preview_title(spec: BundleSpec, map_label: str) -> str:
     else:
         detail = f"{map_label.title()} Probability"
     return f"{spec.name} - {detail}"
+
+
+def cig_labels_for_map(product: PtsProduct, map_label: str) -> tuple[str, ...]:
+    labels = product.maps.get(map_label, {})
+    return tuple(label for label in CIG_ORDER if label in labels)
+
+
+def allowed_cig_labels_for_map(map_label: str) -> tuple[str, ...]:
+    if map_label == "hail":
+        return ("CIG1", "CIG2")
+    if map_label in {"tornado", "wind", "probabilistic"}:
+        return CIG_ORDER
+    return ()
+
+
+def draw_major_city_labels(ax: Any, transform: Any) -> None:
+    import matplotlib.patheffects as path_effects
+
+    for name, lon, lat, dx, dy in MAJOR_CITY_LABELS:
+        ax.scatter(
+            [lon],
+            [lat],
+            transform=transform,
+            s=13,
+            color="#1c1c1c",
+            edgecolors="#ffffff",
+            linewidths=0.8,
+            zorder=58,
+        )
+        ax.text(
+            lon + dx,
+            lat + dy,
+            name,
+            transform=transform,
+            fontsize=8.7,
+            fontweight="bold",
+            fontfamily="DejaVu Sans",
+            color="#151515",
+            ha="left",
+            va="center",
+            zorder=59,
+            path_effects=[path_effects.withStroke(linewidth=2.2, foreground="#ffffff")],
+        )
 
 
 def preview_source_footer(product: PtsProduct) -> str:
@@ -797,8 +868,6 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     transform = ccrs.PlateCarree()
     for label in order:
         polygons = map_polygons.get(label, ())
-        if not polygons and label == "CIG1":
-            polygons = map_polygons.get("CIG2", ())
         for polygon_or_geometry in polygons:
             if hasattr(polygon_or_geometry, "geom_type"):
                 geometry = polygon_or_geometry
@@ -809,14 +878,15 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             if geometry.is_empty:
                 continue
             if label.startswith("CIG"):
+                _legend, hatch, line_width = CIG_STYLE.get(label, (label, "///", 1.5))
                 ax.add_geometries(
                     [geometry],
                     crs=transform,
-                    facecolor="none",
+                    facecolor=(1.0, 1.0, 1.0, 0.0),
                     edgecolor="#111111",
-                    linewidth=1.4,
-                    linestyle="--",
-                    zorder=30,
+                    linewidth=line_width,
+                    hatch=hatch,
+                    zorder=32 + CIG_ORDER.index(label) if label in CIG_ORDER else 32,
                 )
             else:
                 _legend, face, edge = preview_style_for_label(map_label, label)
@@ -830,9 +900,10 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
                     zorder=10 + order.index(label) if label in order else 10,
                 )
 
-    ax.add_feature(states, linewidth=0.75, zorder=40)
-    ax.add_feature(borders, linewidth=1.0, zorder=41)
-    ax.coastlines(resolution="50m", linewidth=0.85, color="#2e2e2e", zorder=42)
+    ax.add_feature(states, linewidth=1.05, zorder=40)
+    ax.add_feature(borders, linewidth=1.15, zorder=41)
+    ax.coastlines(resolution="50m", linewidth=1.0, color="#2e2e2e", zorder=42)
+    draw_major_city_labels(ax, transform)
 
     fig.patches.append(
         Rectangle((0.0, 0.0), 0.62, 0.13, transform=fig.transFigure, facecolor="#ffffff", edgecolor="#111111", linewidth=1.0)
@@ -893,32 +964,36 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
         for label in reversed(prob_order):
             legend, face, edge = style[label]
             legend_entries.append((legend, face, edge, ""))
-        legend_entries.append(("Significant", "white", "#111111", "--"))
+        shown_cig_labels = cig_labels_for_map(product, map_label) or allowed_cig_labels_for_map(map_label)
+        for label in shown_cig_labels:
+            legend, hatch, _line_width = CIG_STYLE[label]
+            legend_entries.append((legend, "white", "#111111", hatch))
         legend_title = "Probability"
 
-    legend_ax = fig.add_axes([0.80, 0.018, 0.19, 0.26])
+    legend_height = min(0.395, 0.115 + 0.037 * len(legend_entries))
+    legend_width = 0.215 if len(legend_entries) <= 7 else 0.225
+    legend_ax = fig.add_axes([0.99 - legend_width, 0.018, legend_width, legend_height])
     legend_ax.set_axis_off()
     legend_ax.add_patch(
-        Rectangle((0, 0), 1, 1, transform=legend_ax.transAxes, facecolor="#ffffff", edgecolor="#111111", linewidth=1.0)
+        Rectangle((0, 0), 1, 1, transform=legend_ax.transAxes, facecolor="#ffffff", edgecolor="#111111", linewidth=1.2)
     )
-    legend_ax.text(0.50, 0.93, legend_title, ha="center", va="center", fontsize=14, fontweight="bold")
-    y = 0.82
-    step = 0.105 if len(legend_entries) > 6 else 0.125
+    legend_ax.text(0.50, 0.925, legend_title, ha="center", va="center", fontsize=16, fontweight="bold")
+    y = 0.815
+    step = 0.078 if len(legend_entries) > 8 else 0.098 if len(legend_entries) > 6 else 0.116
     for legend, face, edge, hatch in legend_entries:
-        linestyle = "--" if hatch == "--" else "-"
         legend_ax.add_patch(
             Rectangle(
-                (0.08, y - 0.035),
-                0.18,
-                0.065,
+                (0.075, y - 0.034),
+                0.205,
+                0.068,
                 transform=legend_ax.transAxes,
                 facecolor=face,
                 edgecolor=edge,
-                linewidth=2.0,
-                linestyle=linestyle,
+                linewidth=2.15,
+                hatch=hatch or None,
             )
         )
-        legend_ax.text(0.32, y, legend, ha="left", va="center", fontsize=12)
+        legend_ax.text(0.335, y, legend, ha="left", va="center", fontsize=13.4)
         y -= step
 
     if not any(map_polygons.values()):

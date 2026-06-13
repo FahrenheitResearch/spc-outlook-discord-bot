@@ -5,55 +5,55 @@
   "updated": "0253 AM CDT SAT JUN 13 2026",
   "product_id": "preview:PTSD48:161200Z",
   "page_url": "https://www.spc.noaa.gov/products/exper/day4-8/",
-  "post_key": "fe1faa4f9c0399e45b78c80a8a56b6e88268102363ff35373f5cde180d202e25",
+  "post_key": "a836e9d66a31183498f1f279aa77b3a1fd466d18ffee4452fa4479fcd0d51c55",
   "images": [
     {
       "label": "day4-8",
       "url": "pts://PTSD48:161200Z/day4-8",
       "filename": "day4-8_fast_day4-8.png",
       "content_type": "image/png",
-      "sha256": "36868a8c1d16b5f05aa495003dfbaf2e36072b9a926d663eb184d96d175dff64",
-      "bytes": 332243
+      "sha256": "6e5179a8ccb60863ab46ff99aa54eeacf186d8b450285bccbe0c15a943d20ef4",
+      "bytes": 369477
     },
     {
       "label": "day4",
       "url": "pts://PTSD48:161200Z/day4",
       "filename": "day4-8_fast_day4.png",
       "content_type": "image/png",
-      "sha256": "c4ed8ef32a43474ffb0fa0845775724b1110b03e178fcd982a3c0ad6e12a5a86",
-      "bytes": 329317
+      "sha256": "b876e2f7f68e2d9bfd0f46985aa62c79f00e9be18c55879f3ea637796142cf1e",
+      "bytes": 362550
     },
     {
       "label": "day5",
       "url": "pts://PTSD48:161200Z/day5",
       "filename": "day4-8_fast_day5.png",
       "content_type": "image/png",
-      "sha256": "f4d45e42099ea8d638076f6474cdb6ef339861971dbacfec0acb04c010dc9cb4",
-      "bytes": 330718
+      "sha256": "ea99abf596e73f732904e088c91c4acc4afac08c9d09869da1f88e5130c2324d",
+      "bytes": 367132
     },
     {
       "label": "day6",
       "url": "pts://PTSD48:161200Z/day6",
       "filename": "day4-8_fast_day6.png",
       "content_type": "image/png",
-      "sha256": "dbfd3dc46a81ad92fc3cc1ac71e7f625e253f2f3ef07c25486baf3cb021c7965",
-      "bytes": 331567
+      "sha256": "39f5a13785f02ff7dfd67823e6d72f9519672fae82dd902104291d25c43e4125",
+      "bytes": 367389
     },
     {
       "label": "day7",
       "url": "pts://PTSD48:161200Z/day7",
       "filename": "day4-8_fast_day7.png",
       "content_type": "image/png",
-      "sha256": "63b3461369a1057c694d59a0d5d060df16ad4a5b49a855fdc31e42b01c32c9bf",
-      "bytes": 329211
+      "sha256": "7c312fe0468d04978d47d8aeaad113c3869be950d1d2634338f00f8e93f9137f",
+      "bytes": 362492
     },
     {
       "label": "day8",
       "url": "pts://PTSD48:161200Z/day8",
       "filename": "day4-8_fast_day8.png",
       "content_type": "image/png",
-      "sha256": "8e144eab06766c703552c7a5565311808165ea40bedc3b5c8ab12700730fbe19",
-      "bytes": 329503
+      "sha256": "465e6578fd16a7224b09546c6d9cbcbc3b1a462f162824122270b5ef1d2a76c3",
+      "bytes": 362752
     }
   ]
 }

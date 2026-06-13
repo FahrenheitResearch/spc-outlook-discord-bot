@@ -6,6 +6,8 @@ By default, this bot runs in `custom-only` mode with `geojson-first` geometry: i
 
 Proof bundle: [docs/proof](docs/proof/index.html)
 
+The custom renderer also understands [SPC's 2026 Conditional Intensity Group (CIG) system](https://www.spc.noaa.gov/exper/conditional-intensity-information/). Hazard maps can show hatched CIG overlays from the official geometry products, with CIG1-CIG3 for tornado/wind-style products and CIG1-CIG2 for hail/Day 3 total severe where SPC defines only two intensity levels.
+
 ## What It Posts
 
 Each full current-set run becomes four image-only Discord messages:

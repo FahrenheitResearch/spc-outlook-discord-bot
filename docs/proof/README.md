@@ -1,12 +1,9 @@
-# Custom Proof Bundle
+# SPC Outlook Bot Proof Bundles
 
-This directory is a static proof capture from a dry run of the bot in `custom-only` mode with `geojson-first` custom geometry.
+Generated: 2026-06-13 18:04 UTC
 
-It shows the four Discord messages the bot posts by default:
+This directory is a static proof page for the fast custom SPC outlook renderer. It contains 4 Discord-style message bundles and 16 PNG maps generated from official SPC geometry products.
 
-- Day 1: 4 fast SPC GeoJSON preview maps
-- Day 2: 4 fast SPC GeoJSON preview maps
-- Day 3: 2 fast SPC GeoJSON preview maps
-- Day 4-8: 6 fast SPC PTS preview maps
+Day 1-3 maps are backed by SPC GeoJSON when available. Day 4-8 maps currently use SPC PTS geometry because the SPC page does not expose a matching GeoJSON bundle. Hazard-map legends are prepared for the 2026 SPC Conditional Intensity Group hatching system while preserving the warning that these are unofficial fast previews.
 
-The HTML page references only local files under `assets/`, and each image has its byte count and SHA-256 hash listed on the page. The images are unofficial renders from official SPC geometry products and intentionally do not include NOAA/NWS logos.
+Open `index.html` or publish this directory through GitHub Pages.

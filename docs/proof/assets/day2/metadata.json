@@ -5,39 +5,39 @@
   "updated": "2026-06-13 1737Z",
   "product_id": "preview:geojson:day2otlk_20260613_1730:20260614T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-  "post_key": "bfad24f346c08aec83760a207d571613cd42249445eb60ea601939c198b2ecba",
+  "post_key": "cd97d8052ba319c9dbfcf94b52c7882865c7172a66d098c1fd76343a1cd99355",
   "images": [
     {
       "label": "categorical",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/categorical",
       "filename": "day2_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "72122258193545de7395590356560f646cc0f548e500451cbbb984c07bdea0a5",
-      "bytes": 407822
+      "sha256": "abe7c50b10f9fc1a207df9bb21b56fe0914ab6d9dd1f48edbbe51bfe659046c3",
+      "bytes": 444218
     },
     {
       "label": "tornado",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/tornado",
       "filename": "day2_fast_tornado.png",
       "content_type": "image/png",
-      "sha256": "53969439ab06cbfb260a83ad9995542e44bad9e387ccf3e3afd1644f14906d49",
-      "bytes": 338411
+      "sha256": "63ca677c2b39aceabbca605424fc91df3c1497462b32fa845daf8283a1cbc9ec",
+      "bytes": 383528
     },
     {
       "label": "wind",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/wind",
       "filename": "day2_fast_wind.png",
       "content_type": "image/png",
-      "sha256": "8bf0b8b2e041a2ac2a2e57dc116c9b223b072fe203b3d95712085856fbd80b2d",
-      "bytes": 367799
+      "sha256": "096589fdbe7e1176f52d864af1c8c19fae890f6516be5d095e140c6d8141f9ed",
+      "bytes": 413555
     },
     {
       "label": "hail",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/hail",
       "filename": "day2_fast_hail.png",
       "content_type": "image/png",
-      "sha256": "3985555a66e644ada8a2ca537ffbff46ec6bd55b49c21dd91d4e182336eb42cb",
-      "bytes": 336623
+      "sha256": "4d90bddbb766c9c7ee931806b5ec416dc2d830a9475dcf4d67e58920a0927cb2",
+      "bytes": 379391
     }
   ]
 }

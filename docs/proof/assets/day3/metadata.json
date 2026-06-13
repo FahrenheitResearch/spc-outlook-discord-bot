@@ -5,23 +5,23 @@
   "updated": "2026-06-13 0634Z",
   "product_id": "preview:geojson:day3otlk_20260613_0730:20260615T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-  "post_key": "31e3b08041e9716459e76f003bae7abcafbb6410d7f0aff431178a0b3e6a4ba6",
+  "post_key": "c06a2250f9e6a8b005b4a9d65a63b57afbde94a5e9f65a22051effe31baab7d6",
   "images": [
     {
       "label": "categorical",
       "url": "geojson://geojson:day3otlk_20260613_0730:20260615T120000+0000/categorical",
       "filename": "day3_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "2c0c3c8101088eef42fe893813debd56bcf978c26f75c2a0fbc8f7b876bdc6fd",
-      "bytes": 376990
+      "sha256": "7184097640d2b663f6a820c9f9f04d2a5384713e0ca52574b0928e93d5c0beb2",
+      "bytes": 414773
     },
     {
       "label": "probabilistic",
       "url": "geojson://geojson:day3otlk_20260613_0730:20260615T120000+0000/probabilistic",
       "filename": "day3_fast_probabilistic.png",
       "content_type": "image/png",
-      "sha256": "7cb873f90b7a68c154d16ce2c3470532fd98d716a1ea8f8fdbbfe3b5f0d2312a",
-      "bytes": 333788
+      "sha256": "0c0180f830b96f5569f03b28770b7c43d7969e135d4d001fd673dddfdc94bcca",
+      "bytes": 376431
     }
   ]
 }
