@@ -1,43 +1,48 @@
 {
   "bundle": "day2",
-  "name": "SPC Day 2 Outlook",
-  "title": "SPC Day 2 Outlook Fast Custom Preview",
+  "name": "Day 2 Convective Outlook",
+  "title": "Day 2 Convective Outlook Fast Custom Preview",
   "updated": "2026-06-13 1737Z",
   "product_id": "preview:geojson:day2otlk_20260613_1730:20260614T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-  "post_key": "10cf1d7d57cdd9198860b0b82b12c5c8009907c55282186ddac8e11ea356d9bc",
+  "post_key": "7845a0019b3ef43e8dd88b1b9accc8c6ded39da48d875166bf25160d5f33ae18",
+  "risk_labels": [
+    "TSTM",
+    "MRGL",
+    "SLGT"
+  ],
   "images": [
     {
       "label": "categorical",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/categorical",
       "filename": "day2_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "abe7c50b10f9fc1a207df9bb21b56fe0914ab6d9dd1f48edbbe51bfe659046c3",
-      "bytes": 444218
+      "sha256": "93bfe2c2deeaa5af39e61c79c63c9aa3d0651f2b5c5a8db40dec071bd7034caf",
+      "bytes": 449094
     },
     {
       "label": "tornado",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/tornado",
       "filename": "day2_fast_tornado.png",
       "content_type": "image/png",
-      "sha256": "538be2df0d3895c42c5b42f4c2b466a2ab207291cdbd5d8a6bde6f966c64d98c",
-      "bytes": 385567
+      "sha256": "e2454d5d5a087efe4341130ed2de52f9f49caa71f3760c9e40837e7e654f4c88",
+      "bytes": 390464
     },
     {
       "label": "wind",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/wind",
       "filename": "day2_fast_wind.png",
       "content_type": "image/png",
-      "sha256": "781643bd0bf0584fa2adade64c0f8dd9b5e3af56adb850f4d9f644d43ed6a604",
-      "bytes": 415393
+      "sha256": "621fd9405eb57468b0ae06bed526362ee44e8f8c9ee2f8f1d7a7ed8350a8106d",
+      "bytes": 420559
     },
     {
       "label": "hail",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/hail",
       "filename": "day2_fast_hail.png",
       "content_type": "image/png",
-      "sha256": "1cb3f6580649f9f672f4af026c054871f85934f2cf81456695a684273012fd4b",
-      "bytes": 379840
+      "sha256": "d41165a8489d986a63013128eb798a567f403df92975a0b375ecfadb7ef40eac",
+      "bytes": 385155
     }
   ]
 }

@@ -1,27 +1,30 @@
 {
   "bundle": "day3",
-  "name": "SPC Day 3 Outlook",
-  "title": "SPC Day 3 Outlook Fast Custom Preview",
+  "name": "Day 3 Convective Outlook",
+  "title": "Day 3 Convective Outlook Fast Custom Preview",
   "updated": "2026-06-13 0634Z",
   "product_id": "preview:geojson:day3otlk_20260613_0730:20260615T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-  "post_key": "9b42a6967ca15900748f9099c78877aeeaf58b2db0ead8c14dd9f4e150b77e48",
+  "post_key": "4faae74d8456a24113c4eea180c368678cd3bfea8857ca163d65e4f3e153fd45",
+  "risk_labels": [
+    "TSTM"
+  ],
   "images": [
     {
       "label": "categorical",
       "url": "geojson://geojson:day3otlk_20260613_0730:20260615T120000+0000/categorical",
       "filename": "day3_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "7184097640d2b663f6a820c9f9f04d2a5384713e0ca52574b0928e93d5c0beb2",
-      "bytes": 414773
+      "sha256": "a56ab1e5b8cb256f87d1e0e3a73767d7af4b6de0137197d50a26b4b3092f85e3",
+      "bytes": 419819
     },
     {
       "label": "probabilistic",
       "url": "geojson://geojson:day3otlk_20260613_0730:20260615T120000+0000/probabilistic",
       "filename": "day3_fast_probabilistic.png",
       "content_type": "image/png",
-      "sha256": "81c430dd5b245f9000501f82f83efa5b068c2cc49731db939b1e1a9531a9ff82",
-      "bytes": 378161
+      "sha256": "0aa71376bc41b707d65f34c9efee2853dd54ec281782475df6370d37202d026a",
+      "bytes": 383232
     }
   ]
 }

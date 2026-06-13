@@ -1,7 +1,7 @@
 [project]
 name = "spc-outlook-discord-bot"
 version = "0.1.0"
-description = "Post fast SPC outlook map bundles to Discord as soon as new outlooks are issued."
+description = "Post fast unofficial severe-weather outlook map bundles to Discord from NOAA/NWS SPC geometry."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

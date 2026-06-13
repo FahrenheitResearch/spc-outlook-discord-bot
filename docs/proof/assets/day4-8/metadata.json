@@ -1,59 +1,63 @@
 {
   "bundle": "day4-8",
-  "name": "SPC Day 4-8 Outlook",
-  "title": "SPC Day 4-8 Outlook Fast Custom Preview",
+  "name": "Day 4-8 Convective Outlook",
+  "title": "Day 4-8 Convective Outlook Fast Custom Preview",
   "updated": "0253 AM CDT SAT JUN 13 2026",
   "product_id": "preview:PTSD48:161200Z",
   "page_url": "https://www.spc.noaa.gov/products/exper/day4-8/",
-  "post_key": "a836e9d66a31183498f1f279aa77b3a1fd466d18ffee4452fa4479fcd0d51c55",
+  "post_key": "b58e9b2abe0b5d9cc57d948c4eb3b76226789367b3126e1ee4a2bc01b7dc8841",
+  "risk_labels": [
+    "0.15",
+    "DAY48_OUTLOOK"
+  ],
   "images": [
     {
       "label": "day4-8",
       "url": "pts://PTSD48:161200Z/day4-8",
       "filename": "day4-8_fast_day4-8.png",
       "content_type": "image/png",
-      "sha256": "6e5179a8ccb60863ab46ff99aa54eeacf186d8b450285bccbe0c15a943d20ef4",
-      "bytes": 369477
+      "sha256": "536adc2f559d4376c9586c3790079ee6ff7bb1f53df5ebe57383bd75e1c060b7",
+      "bytes": 383683
     },
     {
       "label": "day4",
       "url": "pts://PTSD48:161200Z/day4",
       "filename": "day4-8_fast_day4.png",
       "content_type": "image/png",
-      "sha256": "b876e2f7f68e2d9bfd0f46985aa62c79f00e9be18c55879f3ea637796142cf1e",
-      "bytes": 362550
+      "sha256": "184a3e321458c7d7d5e96a099d3e7d81c82245c2b2d8cd042c5e0d6d0748195c",
+      "bytes": 372121
     },
     {
       "label": "day5",
       "url": "pts://PTSD48:161200Z/day5",
       "filename": "day4-8_fast_day5.png",
       "content_type": "image/png",
-      "sha256": "ea99abf596e73f732904e088c91c4acc4afac08c9d09869da1f88e5130c2324d",
-      "bytes": 367132
+      "sha256": "3fe6f62fb9ffb74b384733b344966524a4596d82ca8b801ab8d8398d13a7b885",
+      "bytes": 377284
     },
     {
       "label": "day6",
       "url": "pts://PTSD48:161200Z/day6",
       "filename": "day4-8_fast_day6.png",
       "content_type": "image/png",
-      "sha256": "39f5a13785f02ff7dfd67823e6d72f9519672fae82dd902104291d25c43e4125",
-      "bytes": 367389
+      "sha256": "976eef3eab067ab755898b50bc79b426ec4b25e4659fbd7dcd325471c3b73f07",
+      "bytes": 377785
     },
     {
       "label": "day7",
       "url": "pts://PTSD48:161200Z/day7",
       "filename": "day4-8_fast_day7.png",
       "content_type": "image/png",
-      "sha256": "7c312fe0468d04978d47d8aeaad113c3869be950d1d2634338f00f8e93f9137f",
-      "bytes": 362492
+      "sha256": "b612aec5675d7e7a2eabbac13d1cf613c0fc8ead37553188c82634daa17b5a94",
+      "bytes": 372105
     },
     {
       "label": "day8",
       "url": "pts://PTSD48:161200Z/day8",
       "filename": "day4-8_fast_day8.png",
       "content_type": "image/png",
-      "sha256": "465e6578fd16a7224b09546c6d9cbcbc3b1a462f162824122270b5ef1d2a76c3",
-      "bytes": 362752
+      "sha256": "28ea7bc0ff397852618f4d750933e5c9d98b5acc653efab775ce3384d87d49ab",
+      "bytes": 372426
     }
   ]
 }

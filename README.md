@@ -1,8 +1,8 @@
-# SPC Outlook Discord Bot
+# Fast Severe Outlook Discord Bot
 
-Post SPC outlook map bundles to Discord as soon as new outlook geometry is available.
+Post fast severe-weather outlook map bundles to Discord as soon as new NOAA/NWS Storm Prediction Center geometry is available.
 
-By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast SPC-styled maps from official SPC GeoJSON polygons for Day 1-3, uses PTS geometry for Day 4-8, posts four bundled Discord messages, and does not use NOAA/NWS logos. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
+By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast unofficial maps from official NOAA/NWS Storm Prediction Center GeoJSON polygons for Day 1-3, uses PTS geometry for Day 4-8, posts four bundled Discord messages, and does not use NOAA/NWS/SPC logos or emblems. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
 
 Proof bundle: [docs/proof](docs/proof/index.html)
 
@@ -23,7 +23,7 @@ Each full current-set run becomes four image-only Discord messages:
 
 | Mode | Behavior |
 | --- | --- |
-| `custom-only` | Default. Posts fast custom maps rendered from official SPC geometry products. Keeps the output to four bundled messages. |
+| `custom-only` | Default. Posts fast custom maps rendered from official NOAA/NWS SPC geometry products. Keeps the output to four bundled messages. |
 | `custom-first` | Posts the fast PTS render immediately, then posts the official SPC image bundle when those files appear. |
 | `official-only` | Posts only the exact official SPC PNG/GIF files from the SPC web pages. Slower, but no custom rendering. |
 | `both` | Posts both products whenever a refresh runs. Mostly useful for testing. |
@@ -35,6 +35,17 @@ Each full current-set run becomes four image-only Discord messages:
 | `geojson-first` | Default. Uses official SPC GeoJSON polygons for Day 1-3 and falls back to PTS only for products without GeoJSON, such as Day 4-8. |
 | `geojson-only` | Requires SPC GeoJSON. Useful for quality testing Day 1-3, but Day 4-8 is not available in this source. |
 | `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
+
+## Optional Risk Filtering
+
+By default, every new bundle posts. For high-signal servers, set:
+
+```text
+SPC_MIN_RISK_LEVEL=enh
+SPC_ALWAYS_POST_DAY48=1
+```
+
+That posts Day 1-3 custom bundles only when the categorical outlook reaches Enhanced or higher, while still posting any Day 4-8 outlook that contains a 15% or 30% area. Valid thresholds are `any`, `tstm`, `mrgl`, `slgt`, `enh`, `mdt`, and `high`.
 
 ## Why It Is Fast
 
@@ -73,6 +84,7 @@ Set:
 
 ```text
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+DISCORD_USERNAME=Fast Severe Outlook Bot
 SPC_RENDER_MODE=custom-only
 SPC_CUSTOM_SOURCE=geojson-first
 ```
@@ -136,8 +148,11 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DISCORD_WEBHOOK_URL` | unset | Discord webhook destination. Required unless dry-running. |
+| `DISCORD_USERNAME` | `Fast Severe Outlook Bot` | Display name used by the Discord webhook. Keep this unofficial unless you have agency permission. |
 | `SPC_RENDER_MODE` | `custom-only` | `custom-only`, `custom-first`, `official-only`, or `both`. |
 | `SPC_CUSTOM_SOURCE` | `geojson-first` | `geojson-first`, `geojson-only`, or `pts-only`. |
+| `SPC_MIN_RISK_LEVEL` | `any` | Optional Day 1-3 custom bundle filter. Use `enh` for Enhanced-or-higher posts only. |
+| `SPC_ALWAYS_POST_DAY48` | `0` | With risk filtering enabled, still post any Day 4-8 outlook with a 15% or 30% area. |
 | `SPC_MESSAGE_CONTENT` | `none` | `none`, `short`, or `debug`. `none` posts image-only messages. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
 | `SPC_FETCH_ATTEMPTS` | `4` | Normal fetch retry count. |
@@ -162,7 +177,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 
 ## Public-Safety Boundary
 
-The fast maps are generated from official SPC geometry products, but they are not official NOAA/NWS/SPC graphics. They are labeled as unofficial fast renders and intentionally omit NOAA/NWS logos. For life-safety decisions, check SPC/NWS directly.
+The fast maps are generated from official NOAA/NWS Storm Prediction Center geometry products, but they are not official NOAA/NWS/SPC graphics. They are labeled as unofficial fast renders and intentionally omit NOAA/NWS/SPC logos and emblems. The data source is attributed in text only. For life-safety decisions, check SPC/NWS directly.
 
 Use `official-only` when your priority is exact SPC web graphics. Use `custom-only` when your priority is getting the official outlook geometry into Discord as quickly as practical.
 

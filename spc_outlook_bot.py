@@ -43,6 +43,8 @@ from typing import Any, Iterator
 
 SPC_BASE = "https://www.spc.noaa.gov"
 USER_AGENT = "spc-outlook-bot/1.0 (+https://www.spc.noaa.gov/)"
+WATER_COLOR = "#6f9fca"
+LAND_COLOR = "#f8f3df"
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
@@ -76,6 +78,7 @@ class BundleSnapshot:
     product_id: str
     page_url: str
     images: tuple[MapImage, ...]
+    risk_labels: tuple[str, ...] = ()
 
     @property
     def post_key(self) -> str:
@@ -99,28 +102,28 @@ class PtsProduct:
 BUNDLES: tuple[BundleSpec, ...] = (
     BundleSpec(
         key="day1",
-        name="SPC Day 1 Outlook",
+        name="Day 1 Convective Outlook",
         page_url=f"{SPC_BASE}/products/outlook/day1otlk.html",
         awips_ids=("PTSDY1", "SWODY1"),
         expected_order=("categorical", "tornado", "wind", "hail"),
     ),
     BundleSpec(
         key="day2",
-        name="SPC Day 2 Outlook",
+        name="Day 2 Convective Outlook",
         page_url=f"{SPC_BASE}/products/outlook/day2otlk.html",
         awips_ids=("PTSDY2", "SWODY2"),
         expected_order=("categorical", "tornado", "wind", "hail"),
     ),
     BundleSpec(
         key="day3",
-        name="SPC Day 3 Outlook",
+        name="Day 3 Convective Outlook",
         page_url=f"{SPC_BASE}/products/outlook/day3otlk.html",
         awips_ids=("PTSDY3", "SWODY3"),
         expected_order=("categorical", "probabilistic"),
     ),
     BundleSpec(
         key="day4-8",
-        name="SPC Day 4-8 Outlook",
+        name="Day 4-8 Convective Outlook",
         page_url=f"{SPC_BASE}/products/exper/day4-8/",
         awips_ids=("PTSD48", "SWOD48"),
         expected_order=("day4-8", "day4", "day5", "day6", "day7", "day8"),
@@ -353,9 +356,11 @@ def fetch_bundle(spec: BundleSpec) -> BundleSnapshot:
 
 
 RISK_ORDER = ("TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH")
+RISK_RANK = {label: index for index, label in enumerate(RISK_ORDER)}
 PROB_ORDER = ("0.02", "0.05", "0.10", "0.15", "0.30", "0.45", "0.60")
 SEVERE_PROB_ORDER = ("0.05", "0.15", "0.30", "0.45", "0.60", "0.75", "0.90")
 DAY48_ORDER = ("day4", "day5", "day6", "day7", "day8")
+DAY48_PROB_ORDER = ("0.15", "0.30")
 
 CATEGORICAL_STYLE = {
     "TSTM": ("Thunderstorms", "#c8efc2", "#45b84d"),
@@ -392,6 +397,11 @@ DAY48_STYLE = {
     "day6": ("D6", "#008a00", "#005c00"),
     "day7": ("D7", "#104e8a", "#0a3156"),
     "day8": ("D8", "#8a4e26", "#5a3017"),
+}
+
+DAY48_PROB_STYLE = {
+    "0.15": ("15%", "#fff36a", "#ff9b00"),
+    "0.30": ("30%", "#d7a74f", "#7a4a1f"),
 }
 
 CIG_ORDER = ("CIG1", "CIG2", "CIG3")
@@ -579,6 +589,7 @@ def is_pts_label(token: str) -> bool:
     return (
         token in RISK_ORDER
         or token in PROB_ORDER
+        or token in DAY48_PROB_ORDER
         or token.startswith("CIG")
         or re.fullmatch(r"0\.\d{2}", token) is not None
     )
@@ -710,8 +721,8 @@ def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
     if spec.key == "day4-8":
         combined: dict[str, list[tuple[tuple[float, float], ...]]] = {}
         for day_key in DAY48_ORDER:
-            for polygons in maps.get(day_key, {}).values():
-                combined.setdefault(day_key, []).extend(polygons)
+            for label, polygons in maps.get(day_key, {}).items():
+                combined.setdefault(label, []).extend(polygons)
         maps["day4-8"] = {label: tuple(polygons) for label, polygons in combined.items()}
 
     return PtsProduct(
@@ -729,8 +740,8 @@ def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
 def preview_order_for_map(map_label: str) -> tuple[str, ...]:
     if map_label == "categorical":
         return RISK_ORDER
-    if map_label == "day4-8":
-        return DAY48_ORDER
+    if map_label == "day4-8" or map_label in DAY48_ORDER:
+        return DAY48_PROB_ORDER
     if map_label in {"wind", "hail", "probabilistic"}:
         return SEVERE_PROB_ORDER + CIG_ORDER
     return PROB_ORDER + CIG_ORDER
@@ -739,8 +750,8 @@ def preview_order_for_map(map_label: str) -> tuple[str, ...]:
 def preview_style_for_label(map_label: str, label: str) -> tuple[str, str, str]:
     if map_label == "categorical":
         return CATEGORICAL_STYLE.get(label, (label, "#dddddd", "#555555"))
-    if map_label == "day4-8":
-        return DAY48_STYLE.get(label, (label.upper(), "#dddddd", "#555555"))
+    if map_label == "day4-8" or map_label in DAY48_ORDER:
+        return DAY48_PROB_STYLE.get(label, (label.upper(), "#dddddd", "#555555"))
     if label.startswith("CIG"):
         return ("Significant", "none", "#111111")
     if map_label in {"wind", "hail", "probabilistic"}:
@@ -761,6 +772,26 @@ def preview_title(spec: BundleSpec, map_label: str) -> str:
     else:
         detail = f"{map_label.title()} Probability"
     return f"{spec.name} - {detail}"
+
+
+def is_day48_probability_map(map_label: str) -> bool:
+    return map_label == "day4-8" or map_label in DAY48_ORDER
+
+
+def risk_labels_from_product(product: PtsProduct) -> tuple[str, ...]:
+    labels: set[str] = set()
+    categorical = product.maps.get("categorical", {})
+    for label in RISK_ORDER:
+        if label in categorical:
+            labels.add(label)
+    if product.spec.key == "day4-8":
+        for map_label in ("day4-8", *DAY48_ORDER):
+            for label in DAY48_PROB_ORDER:
+                if label in product.maps.get(map_label, {}):
+                    labels.add(label)
+        if any(label in labels for label in DAY48_PROB_ORDER):
+            labels.add("DAY48_OUTLOOK")
+    return tuple(sorted(labels, key=lambda label: RISK_RANK.get(label, 100 + list(DAY48_PROB_ORDER).index(label) if label in DAY48_PROB_ORDER else 999)))
 
 
 def cig_labels_for_map(product: PtsProduct, map_label: str) -> tuple[str, ...]:
@@ -795,7 +826,7 @@ def draw_major_city_labels(ax: Any, transform: Any) -> None:
             lat + dy,
             name,
             transform=transform,
-            fontsize=8.7,
+            fontsize=10.0,
             fontweight="bold",
             fontfamily="DejaVu Sans",
             color="#151515",
@@ -910,16 +941,56 @@ def draw_cig_legend_symbol(ax: Any, rect: Any, pattern: str) -> None:
             cursor += step
 
 
+def geometry_parts(geometry: Any) -> Iterator[Any]:
+    geom_type = getattr(geometry, "geom_type", "")
+    if geom_type == "Polygon":
+        yield geometry
+    elif geom_type in {"MultiPolygon", "GeometryCollection"}:
+        for part in geometry.geoms:
+            yield from geometry_parts(part)
+
+
+def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ...]], transform: Any) -> None:
+    import matplotlib.patheffects as path_effects
+    from shapely.geometry import Polygon as ShapelyPolygon
+
+    for label in DAY48_PROB_ORDER:
+        legend, _face, edge = DAY48_PROB_STYLE[label]
+        for polygon_or_geometry in map_polygons.get(label, ()):
+            if hasattr(polygon_or_geometry, "geom_type"):
+                geometry = polygon_or_geometry
+            else:
+                geometry = ShapelyPolygon(polygon_or_geometry)
+            if not geometry.is_valid:
+                geometry = geometry.buffer(0)
+            if geometry.is_empty:
+                continue
+            for part in geometry_parts(geometry):
+                if part.is_empty or part.area < 0.20:
+                    continue
+                point = part.representative_point()
+                ax.text(
+                    point.x,
+                    point.y,
+                    legend,
+                    transform=transform,
+                    ha="center",
+                    va="center",
+                    fontsize=10.5,
+                    fontweight="bold",
+                    fontfamily="DejaVu Sans",
+                    color=edge,
+                    zorder=57,
+                    path_effects=[path_effects.withStroke(linewidth=1.4, foreground="#fff9d0")],
+                )
+
+
 def preview_source_footer(product: PtsProduct) -> str:
-    if product.source == "geojson":
-        return "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC GEOJSON - not an official SPC graphic"
-    return "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC PTS TEXT - not an official SPC graphic"
+    return "UNOFFICIAL RENDER - Data source: NOAA/NWS SPC - not an official SPC/NWS graphic"
 
 
 def preview_source_badge(product: PtsProduct) -> str:
-    if product.source == "geojson":
-        return "FAST SPC GEOJSON RENDER"
-    return "FAST PTS PREVIEW"
+    return "UNOFFICIAL FAST RENDER"
 
 
 def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
@@ -948,10 +1019,10 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     )
     ax = fig.add_axes([0.0, 0.13, 1.0, 0.87], projection=projection)
     ax.set_extent([-125.0, -66.0, 24.0, 50.5], crs=ccrs.PlateCarree())
-    ax.set_facecolor("#78a9d6")
+    ax.set_facecolor(WATER_COLOR)
 
     land = cfeature.NaturalEarthFeature(
-        "physical", "land", "50m", facecolor="#f8f3df", edgecolor="none"
+        "physical", "land", "50m", facecolor=LAND_COLOR, edgecolor="none"
     )
     states = cfeature.NaturalEarthFeature(
         "cultural",
@@ -964,8 +1035,8 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
         "cultural", "admin_0_boundary_lines_land", "50m", facecolor="none", edgecolor="#2e2e2e"
     )
     ax.add_feature(land, zorder=0)
-    ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor="#78a9d6", zorder=0)
-    ax.add_feature(cfeature.LAKES.with_scale("50m"), facecolor="#78a9d6", edgecolor="#2e2e2e", linewidth=0.6, zorder=1)
+    ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor=WATER_COLOR, zorder=0)
+    ax.add_feature(cfeature.LAKES.with_scale("50m"), facecolor=WATER_COLOR, edgecolor="#2e2e2e", linewidth=0.6, zorder=1)
 
     map_polygons = product.maps.get(map_label, {})
     order = preview_order_for_map(map_label)
@@ -998,6 +1069,8 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     ax.add_feature(states, linewidth=1.05, zorder=40)
     ax.add_feature(borders, linewidth=1.15, zorder=41)
     ax.coastlines(resolution="50m", linewidth=1.0, color="#2e2e2e", zorder=42)
+    if is_day48_probability_map(map_label):
+        draw_day48_probability_labels(ax, map_polygons, transform)
     draw_major_city_labels(ax, transform)
 
     fig.patches.append(
@@ -1048,11 +1121,11 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             legend, face, edge = CATEGORICAL_STYLE[label]
             legend_entries.append((legend, face, edge, ""))
         legend_title = "Risk Level"
-    elif map_label == "day4-8":
-        for label in DAY48_ORDER:
-            legend, face, edge = DAY48_STYLE[label]
+    elif is_day48_probability_map(map_label):
+        for label in reversed(DAY48_PROB_ORDER):
+            legend, face, edge = DAY48_PROB_STYLE[label]
             legend_entries.append((legend, face, edge, ""))
-        legend_title = "Outlook Day"
+        legend_title = "Day 4 - 8\nSevere\nWeather\nOutlook\nLegend"
     else:
         prob_order = SEVERE_PROB_ORDER if map_label in {"wind", "hail", "probabilistic"} else PROB_ORDER
         style = SEVERE_PROB_STYLE if map_label in {"wind", "hail", "probabilistic"} else PROB_STYLE
@@ -1065,31 +1138,38 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             legend_entries.append((legend, "white", "#111111", pattern))
         legend_title = "Probability"
 
-    legend_height = min(0.395, 0.115 + 0.037 * len(legend_entries))
-    legend_width = 0.215 if len(legend_entries) <= 7 else 0.225
+    day48_legend = is_day48_probability_map(map_label)
+    legend_height = 0.285 if day48_legend else min(0.395, 0.115 + 0.037 * len(legend_entries))
+    legend_width = 0.165 if day48_legend else 0.215 if len(legend_entries) <= 7 else 0.225
     legend_ax = fig.add_axes([0.99 - legend_width, 0.018, legend_width, legend_height])
     legend_ax.set_axis_off()
     legend_ax.add_patch(
         Rectangle((0, 0), 1, 1, transform=legend_ax.transAxes, facecolor="#ffffff", edgecolor="#111111", linewidth=1.2)
     )
+    legend_title_y = 0.76 if day48_legend else 0.925
     legend_ax.text(
         0.50,
-        0.925,
+        legend_title_y,
         legend_title,
         transform=legend_ax.transAxes,
         ha="center",
         va="center",
-        fontsize=16,
+        fontsize=10.5 if day48_legend else 16,
         fontweight="bold",
+        linespacing=1.08,
         zorder=6,
     )
-    y = 0.815
-    step = 0.078 if len(legend_entries) > 8 else 0.098 if len(legend_entries) > 6 else 0.116
+    y = 0.37 if day48_legend else 0.815
+    step = 0.21 if day48_legend else 0.078 if len(legend_entries) > 8 else 0.098 if len(legend_entries) > 6 else 0.116
     for legend, face, edge, pattern in legend_entries:
+        x0 = 0.20 if day48_legend else 0.075
+        y0 = y - (0.055 if day48_legend else 0.034)
+        swatch_width = 0.52 if day48_legend else 0.205
+        swatch_height = 0.11 if day48_legend else 0.068
         swatch = Rectangle(
-            (0.075, y - 0.034),
-            0.205,
-            0.068,
+            (x0, y0),
+            swatch_width,
+            swatch_height,
             transform=legend_ax.transAxes,
             facecolor=face,
             edgecolor=edge,
@@ -1100,6 +1180,20 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             draw_cig_legend_symbol(legend_ax, swatch, pattern)
         else:
             swatch.set_hatch(pattern or None)
+        if day48_legend:
+            legend_ax.text(
+                x0 + swatch_width / 2,
+                y,
+                legend,
+                transform=legend_ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=11.2,
+                fontweight="bold",
+                zorder=6,
+            )
+            y -= step
+            continue
         legend_ax.text(
             0.335,
             y,
@@ -1172,6 +1266,7 @@ def render_preview_bundle(
         product_id=f"preview:{product.product_id}",
         page_url=spec.page_url,
         images=tuple(images),
+        risk_labels=risk_labels_from_product(product),
     )
 
 
@@ -1199,10 +1294,16 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def bundle_is_posted(state: dict[str, Any], snapshot: BundleSnapshot, *, state_key: str | None = None) -> bool:
+def bundle_is_posted(
+    state: dict[str, Any],
+    snapshot: BundleSnapshot,
+    *,
+    state_key: str | None = None,
+    post_key: str | None = None,
+) -> bool:
     posted = state.setdefault("posted", {})
     key = state_key or snapshot.spec.key
-    return posted.get(key, {}).get("post_key") == snapshot.post_key
+    return posted.get(key, {}).get("post_key") == (post_key or snapshot.post_key)
 
 
 def mark_posted(
@@ -1212,20 +1313,71 @@ def mark_posted(
     mode: str,
     reason: str,
     state_key: str | None = None,
+    post_key: str | None = None,
 ) -> None:
     posted = state.setdefault("posted", {})
     key = state_key or snapshot.spec.key
     posted[key] = {
-        "post_key": snapshot.post_key,
+        "post_key": post_key or snapshot.post_key,
         "product_id": snapshot.product_id,
         "updated": snapshot.updated,
         "title": snapshot.title,
         "image_count": len(snapshot.images),
         "image_sha256": {image.label: image.sha256 for image in snapshot.images},
+        "risk_labels": list(snapshot.risk_labels),
         "mode": mode,
         "reason": reason,
         "at": utc_now_iso(),
     }
+
+
+def normalize_min_risk(value: str) -> str:
+    lowered = value.strip().lower()
+    aliases = {"none": "any", "all": "any", "enhanced": "enh", "moderate": "mdt", "high": "high"}
+    normalized = aliases.get(lowered, lowered)
+    valid = {"any", "tstm", "mrgl", "slgt", "enh", "mdt", "high"}
+    if normalized not in valid:
+        raise BotError(f"invalid risk level {value!r}; expected one of {', '.join(sorted(valid))}")
+    return normalized
+
+
+def max_categorical_risk(risk_labels: tuple[str, ...]) -> str | None:
+    categorical = [label for label in risk_labels if label in RISK_RANK]
+    if not categorical:
+        return None
+    return max(categorical, key=lambda label: RISK_RANK[label])
+
+
+def snapshot_passes_risk_filter(
+    snapshot: BundleSnapshot,
+    *,
+    min_risk_level: str,
+    always_post_day48: bool,
+) -> tuple[bool, str]:
+    min_level = normalize_min_risk(min_risk_level)
+    filter_active = min_level != "any" or always_post_day48
+    if not filter_active:
+        return True, "risk filter disabled"
+
+    if snapshot.spec.key == "day4-8":
+        has_day48_area = "DAY48_OUTLOOK" in snapshot.risk_labels
+        if always_post_day48:
+            if has_day48_area:
+                return True, "Day 4-8 outlook area present"
+            return False, "Day 4-8 has no outlook area"
+        if min_level == "any":
+            return True, "no Day 4-8 risk threshold"
+        return False, f"Day 4-8 skipped by {min_level.upper()}+ categorical filter"
+
+    if min_level == "any":
+        return True, "no categorical threshold"
+    max_risk = max_categorical_risk(snapshot.risk_labels)
+    if not max_risk:
+        return False, "no custom categorical risk metadata"
+    threshold = RISK_RANK[min_level.upper()]
+    if RISK_RANK[max_risk] >= threshold:
+        return True, f"max risk {max_risk} meets {min_level.upper()}+"
+    return False, f"max risk {max_risk} below {min_level.upper()}+"
 
 
 def write_bundle_files(snapshot: BundleSnapshot, out_dir: Path) -> None:
@@ -1239,6 +1391,7 @@ def write_bundle_files(snapshot: BundleSnapshot, out_dir: Path) -> None:
         "product_id": snapshot.product_id,
         "page_url": snapshot.page_url,
         "post_key": snapshot.post_key,
+        "risk_labels": list(snapshot.risk_labels),
         "images": [
             {
                 "label": image.label,
@@ -1296,7 +1449,7 @@ def multipart_body(payload: dict[str, Any], images: tuple[MapImage, ...]) -> tup
 
 def post_to_discord(snapshot: BundleSnapshot, webhook_url: str, *, content_mode: str) -> None:
     payload: dict[str, Any] = {
-        "username": os.getenv("DISCORD_USERNAME", "SPC Outlook Bot"),
+        "username": os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot"),
         "allowed_mentions": {"parse": []},
     }
     if content_mode == "short":
@@ -1369,6 +1522,14 @@ class OutlookBot:
         self.stop_event = threading.Event()
         self.nwws_process: subprocess.Popen[str] | None = None
 
+    def configured_post_key(self, snapshot: BundleSnapshot) -> str:
+        min_level = normalize_min_risk(self.args.min_risk_level)
+        filter_active = min_level != "any" or self.args.always_post_day48
+        if not filter_active:
+            return snapshot.post_key
+        signature = f"risk:{min_level}|day48:{int(self.args.always_post_day48)}"
+        return hashlib.sha256(f"{snapshot.post_key}|{signature}".encode("utf-8")).hexdigest()
+
     def start_nwws_if_requested(self) -> None:
         if not self.args.autostart_nwws:
             return
@@ -1416,13 +1577,32 @@ class OutlookBot:
         prime_only: bool = False,
         state_key: str | None = None,
     ) -> None:
-        if bundle_is_posted(self.state, snapshot, state_key=state_key):
+        post_key = self.configured_post_key(snapshot)
+        if bundle_is_posted(self.state, snapshot, state_key=state_key, post_key=post_key):
             log(f"{snapshot.spec.name}: unchanged ({snapshot.product_id})")
             return
         if prime_only:
-            mark_posted(self.state, snapshot, mode="primed", reason=reason, state_key=state_key)
+            mark_posted(self.state, snapshot, mode="primed", reason=reason, state_key=state_key, post_key=post_key)
             save_state(self.state_path, self.state)
             log(f"{snapshot.spec.name}: primed current issue without posting ({snapshot.product_id})")
+            return
+
+        passes_filter, filter_reason = snapshot_passes_risk_filter(
+            snapshot,
+            min_risk_level=self.args.min_risk_level,
+            always_post_day48=self.args.always_post_day48,
+        )
+        if not passes_filter:
+            mark_posted(
+                self.state,
+                snapshot,
+                mode="filtered",
+                reason=f"{reason}: {filter_reason}",
+                state_key=state_key,
+                post_key=post_key,
+            )
+            save_state(self.state_path, self.state)
+            log(f"{snapshot.spec.name}: skipped by risk filter; {filter_reason}; product={snapshot.product_id}")
             return
 
         result = post_bundle(
@@ -1433,7 +1613,7 @@ class OutlookBot:
             content_mode=self.args.message_content,
         )
         mode = "dry-run" if self.args.dry_run else "posted"
-        mark_posted(self.state, snapshot, mode=mode, reason=reason, state_key=state_key)
+        mark_posted(self.state, snapshot, mode=mode, reason=f"{reason}: {filter_reason}", state_key=state_key, post_key=post_key)
         save_state(self.state_path, self.state)
         labels = ", ".join(image.label for image in snapshot.images)
         log(f"{snapshot.spec.name}: {result}; maps={labels}; product={snapshot.product_id}")
@@ -1617,6 +1797,18 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("geojson-first", "geojson-only", "pts-only"),
         default=os.getenv("SPC_CUSTOM_SOURCE", "geojson-first"),
         help="geometry source for custom maps: official SPC GeoJSON first, GeoJSON only, or raw PTS only",
+    )
+    parser.add_argument(
+        "--min-risk-level",
+        choices=("any", "tstm", "mrgl", "slgt", "enh", "mdt", "high"),
+        default=normalize_min_risk(os.getenv("SPC_MIN_RISK_LEVEL", "any")),
+        help="only post Day 1-3 custom bundles at or above this categorical risk level",
+    )
+    parser.add_argument(
+        "--always-post-day48",
+        action="store_true",
+        default=env_bool("SPC_ALWAYS_POST_DAY48", False),
+        help="when risk filtering is enabled, still post any Day 4-8 outlook with a 15% or 30% area",
     )
     parser.add_argument(
         "--poll-seconds",

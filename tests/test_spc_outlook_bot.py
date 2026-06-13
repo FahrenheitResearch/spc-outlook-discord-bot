@@ -91,6 +91,38 @@ SLGT 36009600 37009500 38009600 36009600
 """
 
 
+PTS_DAY48_TEXT = """
+WUUS48 KWNS 130753
+PTSD48
+
+DAY 4-8 CONVECTIVE OUTLOOK AREAL OUTLINE
+NWS STORM PREDICTION CENTER NORMAN OK
+0253 AM CDT SAT JUN 13 2026
+
+VALID TIME 161200Z - 211200Z
+
+SEVERE WEATHER OUTLOOK POINTS DAY 4
+
+... ANY SEVERE ...
+
+&&
+
+SEVERE WEATHER OUTLOOK POINTS DAY 5
+
+... ANY SEVERE ...
+
+0.15 37409605 37799664 38279696 37409605
+&&
+
+SEVERE WEATHER OUTLOOK POINTS DAY 6
+
+... ANY SEVERE ...
+
+0.30 39508546 41138466 41298383 39508546
+&&
+"""
+
+
 class ParserTests(unittest.TestCase):
     def test_day1_image_urls_follow_current_issue_time(self) -> None:
         spec = bot.BUNDLES[0]
@@ -134,12 +166,12 @@ class ParserTests(unittest.TestCase):
             data=b"not-real-image",
         )
 
-        body, content_type = bot.multipart_body({"username": "SPC Outlook Bot"}, (image,))
+        body, content_type = bot.multipart_body({"username": "Fast Severe Outlook Bot"}, (image,))
 
         self.assertIn("multipart/form-data; boundary=", content_type)
         self.assertIn(b'name="payload_json"', body)
         self.assertIn(b'name="files[0]"; filename="day1_categorical.png"', body)
-        self.assertIn(json.dumps({"username": "SPC Outlook Bot"}).encode("utf-8"), body)
+        self.assertIn(json.dumps({"username": "Fast Severe Outlook Bot"}).encode("utf-8"), body)
 
     def test_pts_coord_parser_handles_longitudes_west_of_100(self) -> None:
         self.assertEqual(bot.parse_pts_coord("37009500"), (-95.0, 37.0))
@@ -158,6 +190,44 @@ class ParserTests(unittest.TestCase):
         self.assertIn("0.15", product.maps["wind"])
         self.assertIn("CIG1", product.maps["wind"])
         self.assertEqual(product.maps["categorical"]["MRGL"][0][0], (-100.21, 34.21))
+
+    def test_day48_pts_preserves_probability_labels(self) -> None:
+        product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
+
+        self.assertIn("0.15", product.maps["day5"])
+        self.assertIn("0.30", product.maps["day6"])
+        self.assertIn("0.15", product.maps["day4-8"])
+        self.assertIn("0.30", product.maps["day4-8"])
+        self.assertIn("DAY48_OUTLOOK", bot.risk_labels_from_product(product))
+
+    def test_risk_filter_supports_enh_plus_and_day48_override(self) -> None:
+        product = bot.parse_pts_text(PTS_DAY1_TEXT, bot.BUNDLES[0])
+        day1_snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="test",
+            updated="now",
+            product_id="test",
+            page_url=bot.BUNDLES[0].page_url,
+            images=(),
+            risk_labels=bot.risk_labels_from_product(product),
+        )
+        day48_product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
+        day48_snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[3],
+            title="test",
+            updated="now",
+            product_id="test",
+            page_url=bot.BUNDLES[3].page_url,
+            images=(),
+            risk_labels=bot.risk_labels_from_product(day48_product),
+        )
+
+        self.assertFalse(
+            bot.snapshot_passes_risk_filter(day1_snapshot, min_risk_level="enh", always_post_day48=True)[0]
+        )
+        self.assertTrue(
+            bot.snapshot_passes_risk_filter(day48_snapshot, min_risk_level="enh", always_post_day48=True)[0]
+        )
 
 
 if __name__ == "__main__":
