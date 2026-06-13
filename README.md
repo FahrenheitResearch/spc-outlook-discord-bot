@@ -153,7 +153,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | `DISCORD_USERNAME` | `Fast Severe Outlook Bot` | Display name used by the Discord webhook. Keep this unofficial unless you have agency permission. |
 | `SPC_RENDER_MODE` | `custom-only` | `custom-only`, `custom-first`, `official-only`, or `both`. |
 | `SPC_CUSTOM_SOURCE` | `geojson-first` | `geojson-first`, `geojson-only`, or `pts-only`. |
-| `SPC_IMAGE_SAFE_SCALE` | `0.90` | Shrinks custom maps inside the PNG canvas so Discord attachment previews crop less. Use `1.0` to disable. |
+| `SPC_IMAGE_SAFE_SCALE` | `0.95` | Shrinks custom maps inside the PNG canvas so Discord attachment previews crop less. Use `1.0` to disable. |
 | `SPC_MIN_RISK_LEVEL` | `any` | Optional Day 1-3 custom bundle filter. Use `enh` for Enhanced-or-higher posts only. |
 | `SPC_ALWAYS_POST_DAY48` | `0` | With risk filtering enabled, still post any Day 4-8 outlook with a 15% or 30% area. |
 | `SPC_MESSAGE_CONTENT` | `none` | `none`, `short`, or `debug`. `none` posts image-only messages. |

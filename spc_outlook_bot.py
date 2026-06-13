@@ -45,7 +45,7 @@ SPC_BASE = "https://www.spc.noaa.gov"
 USER_AGENT = "spc-outlook-bot/1.0 (+https://www.spc.noaa.gov/)"
 WATER_COLOR = "#6f9fca"
 LAND_COLOR = "#f8f3df"
-DEFAULT_IMAGE_SAFE_SCALE = 0.90
+DEFAULT_IMAGE_SAFE_SCALE = 0.95
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
@@ -421,14 +421,21 @@ MAJOR_CITY_LABELS = (
     ("Denver", -104.99, 39.74, 0.35, 0.18),
     ("Dallas", -96.80, 32.78, 0.35, -0.25),
     ("Houston", -95.37, 29.76, 0.35, -0.28),
+    ("Oklahoma City", -97.52, 35.47, 0.35, 0.18),
     ("Kansas City", -94.58, 39.10, 0.35, 0.18),
+    ("Des Moines", -93.62, 41.59, 0.35, -0.24),
     ("Minneapolis", -93.27, 44.98, 0.35, 0.20),
     ("Chicago", -87.63, 41.88, 0.35, 0.18),
+    ("Detroit", -83.05, 42.33, 0.35, 0.18),
     ("St Louis", -90.20, 38.63, 0.35, -0.28),
+    ("Nashville", -86.78, 36.16, 0.35, 0.18),
     ("Memphis", -90.05, 35.15, 0.35, -0.26),
+    ("New Orleans", -90.07, 29.95, 0.35, -0.20),
     ("Atlanta", -84.39, 33.75, 0.35, -0.25),
     ("Charlotte", -80.84, 35.23, 0.35, 0.18),
+    ("Pittsburgh", -79.99, 40.44, 0.35, 0.18),
     ("Washington", -77.04, 38.91, 0.35, -0.22),
+    ("Philadelphia", -75.17, 39.95, 0.35, -0.24),
     ("New York", -74.01, 40.71, 0.35, 0.18),
     ("Boston", -71.06, 42.36, 0.35, 0.18),
 )
@@ -1075,7 +1082,15 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     draw_major_city_labels(ax, transform)
 
     fig.patches.append(
-        Rectangle((0.0, 0.0), 0.62, 0.13, transform=fig.transFigure, facecolor="#ffffff", edgecolor="#111111", linewidth=1.0)
+        Rectangle(
+            (0.0, 0.0),
+            0.70,
+            0.13,
+            transform=fig.transFigure,
+            facecolor="#ffffff",
+            edgecolor="#111111",
+            linewidth=1.0,
+        )
     )
     fig.text(0.015, 0.098, preview_title(product.spec, map_label), fontsize=23, ha="left", va="center")
     fig.text(
@@ -1096,9 +1111,9 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     )
     fig.text(
         0.015,
-        0.014,
+        0.017,
         preview_source_footer(product),
-        fontsize=13,
+        fontsize=15,
         fontweight="bold",
         color="#b00020",
         ha="left",
