@@ -45,6 +45,7 @@ SPC_BASE = "https://www.spc.noaa.gov"
 USER_AGENT = "spc-outlook-bot/1.0 (+https://www.spc.noaa.gov/)"
 WATER_COLOR = "#6f9fca"
 LAND_COLOR = "#f8f3df"
+DEFAULT_IMAGE_SAFE_SCALE = 0.90
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
@@ -1222,7 +1223,38 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     buffer = io.BytesIO()
     fig.savefig(buffer, format="png", dpi=dpi)
     plt.close(fig)
-    return buffer.getvalue()
+    return apply_image_safe_margin(buffer.getvalue(), scale=image_safe_scale())
+
+
+def image_safe_scale() -> float:
+    raw = os.getenv("SPC_IMAGE_SAFE_SCALE", str(DEFAULT_IMAGE_SAFE_SCALE)).strip()
+    try:
+        scale = float(raw)
+    except ValueError as exc:
+        raise BotError(f"SPC_IMAGE_SAFE_SCALE must be a number between 0.50 and 1.00, got {raw!r}") from exc
+    if scale < 0.50 or scale > 1.00:
+        raise BotError(f"SPC_IMAGE_SAFE_SCALE must be between 0.50 and 1.00, got {raw!r}")
+    return scale
+
+
+def apply_image_safe_margin(data: bytes, *, scale: float) -> bytes:
+    if scale >= 0.999:
+        return data
+    try:
+        from PIL import Image
+    except Exception as exc:  # noqa: BLE001
+        raise BotError("SPC_IMAGE_SAFE_SCALE requires Pillow; install requirements.txt or use Docker") from exc
+
+    source = Image.open(io.BytesIO(data)).convert("RGB")
+    width, height = source.size
+    inner_width = max(1, round(width * scale))
+    inner_height = max(1, round(height * scale))
+    resized = source.resize((inner_width, inner_height), Image.Resampling.LANCZOS)
+    framed = Image.new("RGB", (width, height), "#ffffff")
+    framed.paste(resized, ((width - inner_width) // 2, (height - inner_height) // 2))
+    output = io.BytesIO()
+    framed.save(output, format="PNG", optimize=True)
+    return output.getvalue()
 
 
 def render_preview_bundle(
