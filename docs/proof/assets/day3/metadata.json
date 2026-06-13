@@ -1,27 +1,27 @@
 {
   "bundle": "day3",
   "name": "SPC Day 3 Outlook",
-  "title": "Storm Prediction Center Jun 13, 2026 0730 UTC Day 3 Severe Thunderstorm Outlook",
-  "updated": "Sat Jun 13 06:34:40 UTC 2026",
-  "product_id": "PTSDY3202606130730",
+  "title": "SPC Day 3 Outlook Fast PTS Preview",
+  "updated": "0134 AM CDT SAT JUN 13 2026",
+  "product_id": "preview:PTSDY3:151200Z",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-  "post_key": "93e519f0711d47145512920ed86aff9ccc402b430b1dba19291d3a365e08de6d",
+  "post_key": "fda6b2ba811f7a4022f84a8df0b36c4804ebec4e4e5e52bbdf8632d50b42ecb7",
   "images": [
     {
       "label": "categorical",
-      "url": "https://www.spc.noaa.gov/products/outlook/day3otlk_0730.png",
-      "filename": "day3_categorical.png",
+      "url": "pts://PTSDY3:151200Z/categorical",
+      "filename": "day3_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "a67b6aaef391bf8bf4700097b087240eb5e62e11fc25bbb44faa6e87d3a91bc3",
-      "bytes": 380908
+      "sha256": "a5c48147e6ddc031310731d15692451137cfc8244ebae7fd6c56a86a3abe7bfa",
+      "bytes": 347787
     },
     {
       "label": "probabilistic",
-      "url": "https://www.spc.noaa.gov/products/outlook/day3prob_0730.png",
-      "filename": "day3_probabilistic.png",
+      "url": "pts://PTSDY3:151200Z/probabilistic",
+      "filename": "day3_fast_probabilistic.png",
       "content_type": "image/png",
-      "sha256": "38be0558645d02cef2934288cdc445fccb911b4935ad84bf1d9a00be25be4840",
-      "bytes": 333199
+      "sha256": "9c3fb7cb6106512a8ebd53232196fbbd1ea27f2cd2a24ecd33256dcb368da2d3",
+      "bytes": 330023
     }
   ]
 }

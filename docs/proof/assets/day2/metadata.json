@@ -1,43 +1,43 @@
 {
   "bundle": "day2",
   "name": "SPC Day 2 Outlook",
-  "title": "Storm Prediction Center Jun 13, 2026 0600 UTC Day 2 Convective Outlook",
-  "updated": "Sat Jun 13 05:15:47 UTC 2026",
-  "product_id": "PTSDY2202606130600",
+  "title": "SPC Day 2 Outlook Fast PTS Preview",
+  "updated": "1215 AM CDT SAT JUN 13 2026",
+  "product_id": "preview:PTSDY2:141200Z",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-  "post_key": "dc3a819e8d93f06876bfc3a1c7e18a2847d730432b60c8f62be27632b6dc667e",
+  "post_key": "aafe5d44da047135427f23ef423a40af82fc37d25ccaa99b33d32a8cc98c973c",
   "images": [
     {
       "label": "categorical",
-      "url": "https://www.spc.noaa.gov/products/outlook/day2otlk_0600.png",
-      "filename": "day2_categorical.png",
+      "url": "pts://PTSDY2:141200Z/categorical",
+      "filename": "day2_fast_categorical.png",
       "content_type": "image/png",
-      "sha256": "2f46778c1b4d0b56ba4065ceb72b02938cf524e8a49e1991127cdb05412ca653",
-      "bytes": 406966
+      "sha256": "f1f43a43e5ba67ce6d37b0d57b363ddd97e656995677196f4c07b07b999d208d",
+      "bytes": 365542
     },
     {
       "label": "tornado",
-      "url": "https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_torn.png",
-      "filename": "day2_tornado.png",
+      "url": "pts://PTSDY2:141200Z/tornado",
+      "filename": "day2_fast_tornado.png",
       "content_type": "image/png",
-      "sha256": "ac2224c2250f8b065ab1b32d1622d4beba6f3b9168748f8240b7b8739d4b2ef2",
-      "bytes": 333686
+      "sha256": "872f20a96d57448d0ba2e68f9789c5904720f8c79803b2b4397e55cfbde4e497",
+      "bytes": 328799
     },
     {
       "label": "wind",
-      "url": "https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_wind.png",
-      "filename": "day2_wind.png",
+      "url": "pts://PTSDY2:141200Z/wind",
+      "filename": "day2_fast_wind.png",
       "content_type": "image/png",
-      "sha256": "2ea8c76b73459827b80d638408498e1f662e8a2bf9d4c667cd886b504638536c",
-      "bytes": 361219
+      "sha256": "dda979ae1ed0c1b47f3fc22f5e483e53d8ac48b905accf165d07fd42b7ad2d8b",
+      "bytes": 355269
     },
     {
       "label": "hail",
-      "url": "https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_hail.png",
-      "filename": "day2_hail.png",
+      "url": "pts://PTSDY2:141200Z/hail",
+      "filename": "day2_fast_hail.png",
       "content_type": "image/png",
-      "sha256": "50d66d62bad16212d37131dd7ab9dc05ece5a01985133a68cbe1f7ce4491eaf2",
-      "bytes": 332913
+      "sha256": "c2f66c38addc2c2add2c95f0e57a59f7599b033fcace883bcab60b45fa3b190b",
+      "bytes": 331487
     }
   ]
 }

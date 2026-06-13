@@ -19,6 +19,7 @@ import contextlib
 import dataclasses
 import email.utils
 import hashlib
+import io
 import json
 import mimetypes
 import os
@@ -80,6 +81,17 @@ class BundleSnapshot:
         image_hashes = ",".join(f"{image.label}:{image.sha256}" for image in self.images)
         raw = f"{self.spec.key}|{self.product_id}|{self.updated}|{image_hashes}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+@dataclasses.dataclass(frozen=True)
+class PtsProduct:
+    spec: BundleSpec
+    product_id: str
+    title: str
+    issued: str
+    valid: str
+    updated: str
+    maps: dict[str, dict[str, tuple[tuple[tuple[float, float], ...], ...]]]
 
 
 BUNDLES: tuple[BundleSpec, ...] = (
@@ -338,6 +350,486 @@ def fetch_bundle(spec: BundleSpec) -> BundleSnapshot:
     )
 
 
+RISK_ORDER = ("TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH")
+PROB_ORDER = ("0.02", "0.05", "0.10", "0.15", "0.30", "0.45", "0.60")
+SEVERE_PROB_ORDER = ("0.05", "0.15", "0.30", "0.45", "0.60", "0.75", "0.90")
+DAY48_ORDER = ("day4", "day5", "day6", "day7", "day8")
+
+CATEGORICAL_STYLE = {
+    "TSTM": ("Thunderstorms", "#c8efc2", "#45b84d"),
+    "MRGL": ("1 Marginal", "#66a866", "#006100"),
+    "SLGT": ("2 Slight", "#ffe066", "#d0a000"),
+    "ENH": ("3 Enhanced", "#ff9f5f", "#ff6f00"),
+    "MDT": ("4 Moderate", "#e75d5d", "#cc0000"),
+    "HIGH": ("5 High", "#f06cff", "#d000d0"),
+}
+
+PROB_STYLE = {
+    "0.02": ("2%", "#aee7b2", "#2da346"),
+    "0.05": ("5%", "#8a4f2a", "#5b2d12"),
+    "0.10": ("10%", "#ffd84d", "#c29b00"),
+    "0.15": ("15%", "#ef5350", "#c62828"),
+    "0.30": ("30%", "#d55cff", "#9c27b0"),
+    "0.45": ("45%", "#ff4fb3", "#c2185b"),
+    "0.60": ("60%", "#5ff0ff", "#00a5b8"),
+}
+
+SEVERE_PROB_STYLE = {
+    "0.05": ("5%", "#8a4f2a", "#5b2d12"),
+    "0.15": ("15%", "#ffe066", "#d0a000"),
+    "0.30": ("30%", "#ef5350", "#c62828"),
+    "0.45": ("45%", "#f04cff", "#c218c9"),
+    "0.60": ("60%", "#c05cff", "#7b1fa2"),
+    "0.75": ("75%", "#7282ff", "#2636b8"),
+    "0.90": ("90%", "#5ff0ff", "#00a5b8"),
+}
+
+DAY48_STYLE = {
+    "day4": ("D4", "#ff0000", "#a40000"),
+    "day5": ("D5", "#902bee", "#5b1599"),
+    "day6": ("D6", "#008a00", "#005c00"),
+    "day7": ("D7", "#104e8a", "#0a3156"),
+    "day8": ("D8", "#8a4e26", "#5a3017"),
+}
+
+
+def pts_awips_for_spec(spec: BundleSpec) -> str:
+    for awips in spec.awips_ids:
+        if awips.startswith("PTS"):
+            return awips
+    return spec.awips_ids[0]
+
+
+def find_pts_url(html: str, spec: BundleSpec) -> str | None:
+    pts_awips = pts_awips_for_spec(spec)
+    pattern = rf'href="([^"]*KWNS{re.escape(pts_awips)}[^"]*\.txt)"'
+    match = re.search(pattern, html, re.IGNORECASE)
+    if match:
+        return urllib.parse.urljoin(spec.page_url, html_unescape_light(match.group(1)))
+    return None
+
+
+def fetch_pts_text_for_spec(spec: BundleSpec) -> str:
+    html = fetch_text(spec.page_url)
+    pts_url = find_pts_url(html, spec)
+    if not pts_url:
+        raise BotError(f"{spec.name}: could not find PTS text product link")
+    return fetch_text(pts_url)
+
+
+def is_pts_label(token: str) -> bool:
+    return (
+        token in RISK_ORDER
+        or token in PROB_ORDER
+        or token.startswith("CIG")
+        or re.fullmatch(r"0\.\d{2}", token) is not None
+    )
+
+
+def parse_pts_coord(token: str) -> tuple[float, float] | None:
+    if not re.fullmatch(r"\d{8}", token) or token == "99999999":
+        return None
+    lat = int(token[:4]) / 100.0
+    lon_degrees = int(token[4:]) / 100.0
+    if lon_degrees < 30.0:
+        lon_degrees += 100.0
+    lon = -lon_degrees
+    return lon, lat
+
+
+def collect_pts_polygons(
+    lines: list[str],
+) -> dict[str, tuple[tuple[tuple[float, float], ...], ...]]:
+    collected: dict[str, list[tuple[tuple[float, float], ...]]] = {}
+    current_label: str | None = None
+    current_poly: list[tuple[float, float]] = []
+
+    def commit_poly() -> None:
+        nonlocal current_poly
+        if current_label and len(current_poly) >= 3:
+            collected.setdefault(current_label, []).append(tuple(current_poly))
+        current_poly = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("..."):
+            continue
+        parts = line.split()
+        if not parts:
+            continue
+        if is_pts_label(parts[0]):
+            commit_poly()
+            current_label = parts[0]
+            tokens = parts[1:]
+        elif current_label:
+            tokens = parts
+        else:
+            continue
+
+        for token in tokens:
+            if token == "99999999":
+                commit_poly()
+                continue
+            coord = parse_pts_coord(token)
+            if coord is not None:
+                current_poly.append(coord)
+    commit_poly()
+    return {label: tuple(polygons) for label, polygons in collected.items()}
+
+
+def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    nonempty = [line.strip() for line in lines if line.strip()]
+    title = nonempty[0] if nonempty else spec.name
+    issued = ""
+    valid = ""
+    for index, line in enumerate(nonempty):
+        if line.startswith("NWS STORM PREDICTION CENTER") and index + 1 < len(nonempty):
+            issued = nonempty[index + 1]
+        if line.startswith("VALID TIME"):
+            valid = line.replace("VALID TIME", "").strip()
+            break
+    pts_awips = pts_awips_for_spec(spec)
+    valid_start = re.search(r"(\d{6}Z)", valid)
+    product_id = f"{pts_awips}:{valid_start.group(1) if valid_start else hashlib.sha1(text.encode('utf-8')).hexdigest()[:12]}"
+
+    maps: dict[str, dict[str, tuple[tuple[tuple[float, float], ...], ...]]] = {}
+    active_mode: str | None = None
+    active_map: str | None = None
+    map_lines: dict[str, list[str]] = {}
+
+    def finish_map() -> None:
+        nonlocal active_map
+        if active_map:
+            active_map = None
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        upper = line.upper()
+        if upper.startswith("PROBABILISTIC OUTLOOK POINTS"):
+            active_mode = "prob"
+            active_map = None
+            continue
+        if upper.startswith("CATEGORICAL OUTLOOK POINTS"):
+            active_mode = "cat"
+            active_map = None
+            continue
+        day_match = re.match(r"SEVERE WEATHER OUTLOOK POINTS DAY\s+(\d)", upper)
+        if day_match:
+            active_mode = "day48"
+            active_map = f"day{day_match.group(1)}"
+            map_lines.setdefault(active_map, [])
+            continue
+        if upper == "&&":
+            finish_map()
+            continue
+        section_match = re.fullmatch(r"\.\.\.\s*(.*?)\s*\.\.\.", line)
+        if section_match:
+            section = section_match.group(1).strip().upper()
+            if active_mode == "prob":
+                if section == "TORNADO":
+                    active_map = "tornado"
+                elif section == "HAIL":
+                    active_map = "hail"
+                elif section == "WIND":
+                    active_map = "wind"
+                elif section == "ANY SEVERE":
+                    active_map = "probabilistic"
+                else:
+                    active_map = None
+                if active_map:
+                    map_lines.setdefault(active_map, [])
+            elif active_mode == "cat" and section == "CATEGORICAL":
+                active_map = "categorical"
+                map_lines.setdefault(active_map, [])
+            continue
+        if active_map and line:
+            map_lines.setdefault(active_map, []).append(line)
+
+    for map_key, block_lines in map_lines.items():
+        maps[map_key] = collect_pts_polygons(block_lines)
+
+    if spec.key == "day4-8":
+        combined: dict[str, list[tuple[tuple[float, float], ...]]] = {}
+        for day_key in DAY48_ORDER:
+            for polygons in maps.get(day_key, {}).values():
+                combined.setdefault(day_key, []).extend(polygons)
+        maps["day4-8"] = {label: tuple(polygons) for label, polygons in combined.items()}
+
+    return PtsProduct(
+        spec=spec,
+        product_id=product_id,
+        title=title,
+        issued=issued,
+        valid=valid,
+        updated=issued or utc_now_iso(),
+        maps=maps,
+    )
+
+
+def preview_order_for_map(map_label: str) -> tuple[str, ...]:
+    if map_label == "categorical":
+        return RISK_ORDER
+    if map_label == "day4-8":
+        return DAY48_ORDER
+    if map_label in {"wind", "hail", "probabilistic"}:
+        return SEVERE_PROB_ORDER + ("CIG1",)
+    return PROB_ORDER + ("CIG1",)
+
+
+def preview_style_for_label(map_label: str, label: str) -> tuple[str, str, str]:
+    if map_label == "categorical":
+        return CATEGORICAL_STYLE.get(label, (label, "#dddddd", "#555555"))
+    if map_label == "day4-8":
+        return DAY48_STYLE.get(label, (label.upper(), "#dddddd", "#555555"))
+    if label.startswith("CIG"):
+        return ("Significant", "none", "#111111")
+    if map_label in {"wind", "hail", "probabilistic"}:
+        return SEVERE_PROB_STYLE.get(label, (label, "#dddddd", "#555555"))
+    return PROB_STYLE.get(label, (label, "#dddddd", "#555555"))
+
+
+def preview_title(spec: BundleSpec, map_label: str) -> str:
+    if spec.key == "day4-8":
+        if map_label == "day4-8":
+            return spec.name
+        if map_label.startswith("day"):
+            return f"{spec.name} - Day {map_label.removeprefix('day')}"
+    if map_label == "categorical":
+        detail = "Categorical"
+    elif map_label == "probabilistic":
+        detail = "Probabilistic"
+    else:
+        detail = f"{map_label.title()} Probability"
+    return f"{spec.name} - {detail}"
+
+
+def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Rectangle
+
+        import cartopy.crs as ccrs
+        import cartopy.feature as cfeature
+        from shapely.geometry import Polygon as ShapelyPolygon
+    except Exception as exc:  # noqa: BLE001
+        raise BotError(
+            "custom preview rendering requires matplotlib and cartopy; "
+            "install requirements.txt or use Docker"
+        ) from exc
+
+    width, height, dpi = 1630, 1110, 100
+    fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi, facecolor="#ffffff")
+    projection = ccrs.LambertConformal(
+        central_longitude=-96.0,
+        central_latitude=35.0,
+        standard_parallels=(33.0, 45.0),
+    )
+    ax = fig.add_axes([0.0, 0.13, 1.0, 0.87], projection=projection)
+    ax.set_extent([-125.0, -66.0, 24.0, 50.5], crs=ccrs.PlateCarree())
+    ax.set_facecolor("#78a9d6")
+
+    land = cfeature.NaturalEarthFeature(
+        "physical", "land", "50m", facecolor="#f8f3df", edgecolor="none"
+    )
+    states = cfeature.NaturalEarthFeature(
+        "cultural",
+        "admin_1_states_provinces_lines",
+        "50m",
+        facecolor="none",
+        edgecolor="#2e2e2e",
+    )
+    borders = cfeature.NaturalEarthFeature(
+        "cultural", "admin_0_boundary_lines_land", "50m", facecolor="none", edgecolor="#2e2e2e"
+    )
+    ax.add_feature(land, zorder=0)
+    ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor="#78a9d6", zorder=0)
+    ax.add_feature(cfeature.LAKES.with_scale("50m"), facecolor="#78a9d6", edgecolor="#2e2e2e", linewidth=0.6, zorder=1)
+
+    map_polygons = product.maps.get(map_label, {})
+    order = preview_order_for_map(map_label)
+    transform = ccrs.PlateCarree()
+    for label in order:
+        polygons = map_polygons.get(label, ())
+        if not polygons and label == "CIG1":
+            polygons = map_polygons.get("CIG2", ())
+        for polygon in polygons:
+            geometry = ShapelyPolygon(polygon)
+            if not geometry.is_valid:
+                geometry = geometry.buffer(0)
+            if geometry.is_empty:
+                continue
+            if label.startswith("CIG"):
+                ax.add_geometries(
+                    [geometry],
+                    crs=transform,
+                    facecolor="none",
+                    edgecolor="#111111",
+                    linewidth=1.4,
+                    linestyle="--",
+                    zorder=30,
+                )
+            else:
+                _legend, face, edge = preview_style_for_label(map_label, label)
+                ax.add_geometries(
+                    [geometry],
+                    crs=transform,
+                    facecolor=face,
+                    edgecolor=edge,
+                    linewidth=2.2,
+                    alpha=0.66,
+                    zorder=10 + order.index(label) if label in order else 10,
+                )
+
+    ax.add_feature(states, linewidth=0.75, zorder=40)
+    ax.add_feature(borders, linewidth=1.0, zorder=41)
+    ax.coastlines(resolution="50m", linewidth=0.85, color="#2e2e2e", zorder=42)
+
+    fig.patches.append(
+        Rectangle((0.0, 0.0), 0.62, 0.13, transform=fig.transFigure, facecolor="#ffffff", edgecolor="#111111", linewidth=1.0)
+    )
+    fig.text(0.015, 0.098, preview_title(product.spec, map_label), fontsize=23, ha="left", va="center")
+    fig.text(
+        0.015,
+        0.066,
+        f"Issued: {product.issued or 'unknown'}",
+        fontsize=17,
+        ha="left",
+        va="center",
+    )
+    fig.text(
+        0.015,
+        0.040,
+        f"Valid: {product.valid or 'unknown'}",
+        fontsize=17,
+        ha="left",
+        va="center",
+    )
+    fig.text(
+        0.015,
+        0.014,
+        "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC PTS TEXT - not an official SPC graphic",
+        fontsize=13,
+        fontweight="bold",
+        color="#b00020",
+        ha="left",
+        va="center",
+    )
+    fig.text(
+        0.012,
+        0.965,
+        "FAST PTS PREVIEW",
+        fontsize=15,
+        fontweight="bold",
+        color="#ffffff",
+        bbox={"facecolor": "#111111", "edgecolor": "#111111", "boxstyle": "square,pad=0.28"},
+        ha="left",
+        va="center",
+    )
+
+    legend_entries: list[tuple[str, str, str, str]] = []
+    if map_label == "categorical":
+        for label in reversed(RISK_ORDER):
+            legend, face, edge = CATEGORICAL_STYLE[label]
+            legend_entries.append((legend, face, edge, ""))
+        legend_title = "Risk Level"
+    elif map_label == "day4-8":
+        for label in DAY48_ORDER:
+            legend, face, edge = DAY48_STYLE[label]
+            legend_entries.append((legend, face, edge, ""))
+        legend_title = "Outlook Day"
+    else:
+        prob_order = SEVERE_PROB_ORDER if map_label in {"wind", "hail", "probabilistic"} else PROB_ORDER
+        style = SEVERE_PROB_STYLE if map_label in {"wind", "hail", "probabilistic"} else PROB_STYLE
+        for label in reversed(prob_order):
+            legend, face, edge = style[label]
+            legend_entries.append((legend, face, edge, ""))
+        legend_entries.append(("Significant", "white", "#111111", "--"))
+        legend_title = "Probability"
+
+    legend_ax = fig.add_axes([0.80, 0.018, 0.19, 0.26])
+    legend_ax.set_axis_off()
+    legend_ax.add_patch(
+        Rectangle((0, 0), 1, 1, transform=legend_ax.transAxes, facecolor="#ffffff", edgecolor="#111111", linewidth=1.0)
+    )
+    legend_ax.text(0.50, 0.93, legend_title, ha="center", va="center", fontsize=14, fontweight="bold")
+    y = 0.82
+    step = 0.105 if len(legend_entries) > 6 else 0.125
+    for legend, face, edge, hatch in legend_entries:
+        linestyle = "--" if hatch == "--" else "-"
+        legend_ax.add_patch(
+            Rectangle(
+                (0.08, y - 0.035),
+                0.18,
+                0.065,
+                transform=legend_ax.transAxes,
+                facecolor=face,
+                edgecolor=edge,
+                linewidth=2.0,
+                linestyle=linestyle,
+            )
+        )
+        legend_ax.text(0.32, y, legend, ha="left", va="center", fontsize=12)
+        y -= step
+
+    if not any(map_polygons.values()):
+        fig.text(
+            0.50,
+            0.56,
+            "NO OUTLOOK AREA",
+            fontsize=36,
+            fontweight="bold",
+            color="#333333",
+            ha="center",
+            va="center",
+            bbox={"facecolor": "#ffffff", "edgecolor": "#111111", "alpha": 0.82},
+        )
+
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", dpi=dpi)
+    plt.close(fig)
+    return buffer.getvalue()
+
+
+def render_preview_bundle(spec: BundleSpec, pts_text: str | None = None) -> BundleSnapshot:
+    if pts_text is None:
+        pts_text = fetch_pts_text_for_spec(spec)
+    product = parse_pts_text(pts_text, spec)
+    images: list[MapImage] = []
+    for map_label in spec.expected_order:
+        data = render_pts_map_png(product, map_label)
+        digest = hashlib.sha256(data).hexdigest()
+        images.append(
+            MapImage(
+                label=map_label,
+                url=f"pts://{product.product_id}/{map_label}",
+                filename=f"{spec.key}_fast_{map_label}.png",
+                content_type="image/png",
+                sha256=digest,
+                data=data,
+            )
+        )
+    return BundleSnapshot(
+        spec=spec,
+        title=f"{spec.name} Fast PTS Preview",
+        updated=product.updated,
+        product_id=f"preview:{product.product_id}",
+        page_url=spec.page_url,
+        images=tuple(images),
+    )
+
+
+def render_mode_posts_preview(mode: str) -> bool:
+    return mode in {"custom-first", "custom-only", "both"}
+
+
+def render_mode_posts_official(mode: str) -> bool:
+    return mode in {"official-only", "custom-first", "both"}
+
+
 def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"posted": {}}
@@ -354,9 +846,10 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def bundle_is_posted(state: dict[str, Any], snapshot: BundleSnapshot) -> bool:
+def bundle_is_posted(state: dict[str, Any], snapshot: BundleSnapshot, *, state_key: str | None = None) -> bool:
     posted = state.setdefault("posted", {})
-    return posted.get(snapshot.spec.key, {}).get("post_key") == snapshot.post_key
+    key = state_key or snapshot.spec.key
+    return posted.get(key, {}).get("post_key") == snapshot.post_key
 
 
 def mark_posted(
@@ -365,9 +858,11 @@ def mark_posted(
     *,
     mode: str,
     reason: str,
+    state_key: str | None = None,
 ) -> None:
     posted = state.setdefault("posted", {})
-    posted[snapshot.spec.key] = {
+    key = state_key or snapshot.spec.key
+    posted[key] = {
         "post_key": snapshot.post_key,
         "product_id": snapshot.product_id,
         "updated": snapshot.updated,
@@ -517,7 +1012,7 @@ class OutlookBot:
         self.args = args
         self.state_path = Path(args.state_file)
         self.state = load_state(self.state_path)
-        self.trigger_queue: queue.Queue[str] = queue.Queue()
+        self.trigger_queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self.stop_event = threading.Event()
         self.nwws_process: subprocess.Popen[str] | None = None
 
@@ -560,12 +1055,19 @@ class OutlookBot:
             return
         process.kill()
 
-    def handle_snapshot(self, snapshot: BundleSnapshot, reason: str, *, prime_only: bool = False) -> None:
-        if bundle_is_posted(self.state, snapshot):
+    def handle_snapshot(
+        self,
+        snapshot: BundleSnapshot,
+        reason: str,
+        *,
+        prime_only: bool = False,
+        state_key: str | None = None,
+    ) -> None:
+        if bundle_is_posted(self.state, snapshot, state_key=state_key):
             log(f"{snapshot.spec.name}: unchanged ({snapshot.product_id})")
             return
         if prime_only:
-            mark_posted(self.state, snapshot, mode="primed", reason=reason)
+            mark_posted(self.state, snapshot, mode="primed", reason=reason, state_key=state_key)
             save_state(self.state_path, self.state)
             log(f"{snapshot.spec.name}: primed current issue without posting ({snapshot.product_id})")
             return
@@ -578,7 +1080,7 @@ class OutlookBot:
             content_mode=self.args.message_content,
         )
         mode = "dry-run" if self.args.dry_run else "posted"
-        mark_posted(self.state, snapshot, mode=mode, reason=reason)
+        mark_posted(self.state, snapshot, mode=mode, reason=reason, state_key=state_key)
         save_state(self.state_path, self.state)
         labels = ", ".join(image.label for image in snapshot.images)
         log(f"{snapshot.spec.name}: {result}; maps={labels}; product={snapshot.product_id}")
@@ -586,28 +1088,48 @@ class OutlookBot:
     def refresh_all(self, reason: str, *, prime_only: bool = False, changed_only: bool = False) -> None:
         for spec in BUNDLES:
             try:
-                snapshot = snapshot_with_retries(
-                    spec,
-                    attempts=self.args.fetch_attempts,
-                    delay=self.args.fetch_retry_seconds,
-                )
-                if changed_only and bundle_is_posted(self.state, snapshot):
-                    continue
-                self.handle_snapshot(snapshot, reason, prime_only=prime_only)
+                if render_mode_posts_preview(self.args.render_mode):
+                    preview = render_preview_bundle(spec)
+                    preview_key = f"{spec.key}:preview"
+                    if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
+                        self.handle_snapshot(
+                            preview,
+                            f"{reason}:preview",
+                            prime_only=prime_only,
+                            state_key=preview_key,
+                        )
+                if render_mode_posts_official(self.args.render_mode):
+                    snapshot = snapshot_with_retries(
+                        spec,
+                        attempts=self.args.fetch_attempts,
+                        delay=self.args.fetch_retry_seconds,
+                    )
+                    if changed_only and bundle_is_posted(self.state, snapshot):
+                        continue
+                    self.handle_snapshot(snapshot, reason, prime_only=prime_only)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: {exc}")
 
-    def refresh_for_awips(self, awips_id: str, reason: str) -> None:
+    def refresh_for_awips(self, awips_id: str, reason: str, *, raw_bulletin: str | None = None) -> None:
         matched = [spec for spec in BUNDLES if awips_id.upper() in spec.awips_ids]
         specs = matched or list(BUNDLES)
         for spec in specs:
             try:
-                snapshot = snapshot_with_retries(
-                    spec,
-                    attempts=max(self.args.fetch_attempts, self.args.trigger_fetch_attempts),
-                    delay=self.args.fetch_retry_seconds,
-                )
-                self.handle_snapshot(snapshot, reason)
+                if render_mode_posts_preview(self.args.render_mode):
+                    pts_text = (
+                        raw_bulletin
+                        if awips_id.upper().startswith("PTS") and raw_bulletin and raw_bulletin.strip()
+                        else None
+                    )
+                    preview = render_preview_bundle(spec, pts_text=pts_text)
+                    self.handle_snapshot(preview, f"{reason}:preview", state_key=f"{spec.key}:preview")
+                if render_mode_posts_official(self.args.render_mode):
+                    snapshot = snapshot_with_retries(
+                        spec,
+                        attempts=max(self.args.fetch_attempts, self.args.trigger_fetch_attempts),
+                        delay=self.args.fetch_retry_seconds,
+                    )
+                    self.handle_snapshot(snapshot, reason)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: trigger refresh failed: {exc}")
 
@@ -660,7 +1182,7 @@ class OutlookBot:
         if awips_id not in watched:
             return
         log(f"NWWS trigger received: {cccc} {awips_id}")
-        self.trigger_queue.put(awips_id)
+        self.trigger_queue.put((awips_id, str(payload.get("raw_bulletin") or "")))
 
     def poll_due(self, next_poll: float) -> bool:
         return time.monotonic() >= next_poll
@@ -686,8 +1208,8 @@ class OutlookBot:
         try:
             while not self.stop_event.is_set():
                 try:
-                    awips_id = self.trigger_queue.get(timeout=1.0)
-                    self.refresh_for_awips(awips_id, f"nwws:{awips_id}")
+                    awips_id, raw_bulletin = self.trigger_queue.get(timeout=1.0)
+                    self.refresh_for_awips(awips_id, f"nwws:{awips_id}", raw_bulletin=raw_bulletin)
                     next_poll = time.monotonic() + self.args.poll_seconds
                 except queue.Empty:
                     pass
@@ -723,6 +1245,15 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("none", "short", "debug"),
         default=os.getenv("SPC_MESSAGE_CONTENT", "none"),
         help="Discord message text. 'none' posts image-only messages.",
+    )
+    parser.add_argument(
+        "--render-mode",
+        choices=("official-only", "custom-first", "custom-only", "both"),
+        default=os.getenv("SPC_RENDER_MODE", "custom-only"),
+        help=(
+            "what to post: official SPC PNGs only, custom PTS previews before official plots, "
+            "custom previews only, or both"
+        ),
     )
     parser.add_argument(
         "--poll-seconds",

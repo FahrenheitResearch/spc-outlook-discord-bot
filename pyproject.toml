@@ -1,7 +1,7 @@
 [project]
 name = "spc-outlook-discord-bot"
 version = "0.1.0"
-description = "Post official SPC outlook map bundles to Discord as soon as new outlooks are issued."
+description = "Post fast SPC outlook map bundles to Discord as soon as new outlooks are issued."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -21,7 +21,11 @@ classifiers = [
   "Topic :: Communications",
   "Topic :: Scientific/Engineering :: Atmospheric Science",
 ]
-dependencies = []
+dependencies = [
+  "cartopy>=0.25",
+  "matplotlib>=3.10",
+  "shapely>=2.1",
+]
 
 [project.urls]
 Homepage = "https://github.com/FahrenheitResearch/spc-outlook-discord-bot"

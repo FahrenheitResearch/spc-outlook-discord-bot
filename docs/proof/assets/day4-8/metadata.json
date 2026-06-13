@@ -1,59 +1,59 @@
 {
   "bundle": "day4-8",
   "name": "SPC Day 4-8 Outlook",
-  "title": "Storm Prediction Center Jun 13, 2026 Day 4-8 Severe Weather Outlook",
-  "updated": "Sat Jun 13 07:56:03 UTC 2026",
-  "product_id": "PTSD4820260613",
+  "title": "SPC Day 4-8 Outlook Fast PTS Preview",
+  "updated": "0253 AM CDT SAT JUN 13 2026",
+  "product_id": "preview:PTSD48:161200Z",
   "page_url": "https://www.spc.noaa.gov/products/exper/day4-8/",
-  "post_key": "c18f8536b6e930a77ecf2d035c270107713cdd26474db59efc11b7638f16e401",
+  "post_key": "fe1faa4f9c0399e45b78c80a8a56b6e88268102363ff35373f5cde180d202e25",
   "images": [
     {
       "label": "day4-8",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif",
-      "filename": "day4-8_day4-8.gif",
-      "content_type": "image/gif",
-      "sha256": "aa8a91805d79c5a4a62106a0b7904ab56a6f66c72dd11b397f6f85e9d854c5a0",
-      "bytes": 176183
+      "url": "pts://PTSD48:161200Z/day4-8",
+      "filename": "day4-8_fast_day4-8.png",
+      "content_type": "image/png",
+      "sha256": "36868a8c1d16b5f05aa495003dfbaf2e36072b9a926d663eb184d96d175dff64",
+      "bytes": 332243
     },
     {
       "label": "day4",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day4prob.gif",
-      "filename": "day4-8_day4.gif",
-      "content_type": "image/gif",
-      "sha256": "17ebb56846e58b3e4b964d61c7ba428f26afe5ff74ac92d66a28d25e99c1bbf4",
-      "bytes": 27577
+      "url": "pts://PTSD48:161200Z/day4",
+      "filename": "day4-8_fast_day4.png",
+      "content_type": "image/png",
+      "sha256": "c4ed8ef32a43474ffb0fa0845775724b1110b03e178fcd982a3c0ad6e12a5a86",
+      "bytes": 329317
     },
     {
       "label": "day5",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day5prob.gif",
-      "filename": "day4-8_day5.gif",
-      "content_type": "image/gif",
-      "sha256": "1751c7c8ad39bbab449d47c8612b13c984bc7a4ede05076144e0397d417ded82",
-      "bytes": 27919
+      "url": "pts://PTSD48:161200Z/day5",
+      "filename": "day4-8_fast_day5.png",
+      "content_type": "image/png",
+      "sha256": "f4d45e42099ea8d638076f6474cdb6ef339861971dbacfec0acb04c010dc9cb4",
+      "bytes": 330718
     },
     {
       "label": "day6",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day6prob.gif",
-      "filename": "day4-8_day6.gif",
-      "content_type": "image/gif",
-      "sha256": "b05f2a14ce7ce745117f1f7c31d5e8bc40b528937a0fa9ba75e357282fbe96f7",
-      "bytes": 28144
+      "url": "pts://PTSD48:161200Z/day6",
+      "filename": "day4-8_fast_day6.png",
+      "content_type": "image/png",
+      "sha256": "dbfd3dc46a81ad92fc3cc1ac71e7f625e253f2f3ef07c25486baf3cb021c7965",
+      "bytes": 331567
     },
     {
       "label": "day7",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day7prob.gif",
-      "filename": "day4-8_day7.gif",
-      "content_type": "image/gif",
-      "sha256": "0942ad8feb757a01100d048893ba4c76ee61b3bb9928b1c5ed58fbdcb0e43f92",
-      "bytes": 27577
+      "url": "pts://PTSD48:161200Z/day7",
+      "filename": "day4-8_fast_day7.png",
+      "content_type": "image/png",
+      "sha256": "63b3461369a1057c694d59a0d5d060df16ad4a5b49a855fdc31e42b01c32c9bf",
+      "bytes": 329211
     },
     {
       "label": "day8",
-      "url": "https://www.spc.noaa.gov/products/exper/day4-8/day8prob.gif",
-      "filename": "day4-8_day8.gif",
-      "content_type": "image/gif",
-      "sha256": "aaf5249801a6befd17f0b6ee47e23a042d5f10606884c113256a4030d4cce59c",
-      "bytes": 27596
+      "url": "pts://PTSD48:161200Z/day8",
+      "filename": "day4-8_fast_day8.png",
+      "content_type": "image/png",
+      "sha256": "8e144eab06766c703552c7a5565311808165ea40bedc3b5c8ab12700730fbe19",
+      "bytes": 329503
     }
   ]
 }

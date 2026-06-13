@@ -52,6 +52,45 @@ Updated:&nbsp;Sat Jun 13 07:56:03 UTC 2026
 """
 
 
+PTS_DAY1_TEXT = """
+WUUS01 KWNS 131630
+PTSDY1
+
+DAY 1 CONVECTIVE OUTLOOK AREAL OUTLINE
+NWS STORM PREDICTION CENTER NORMAN OK
+1130 AM CDT SAT JUN 13 2026
+
+VALID TIME 131630Z - 141200Z
+
+PROBABILISTIC OUTLOOK POINTS DAY 1
+
+... TORNADO ...
+
+0.02 34210021 35009940 34309880 34210021
+&&
+
+... WIND ...
+
+0.15 36009600 37009500 38009600 36009600
+CIG1 37009700 38009600 37009600 37009700
+&&
+
+... HAIL ...
+
+0.05 31509820 32009750 31209720 31509820
+&&
+
+CATEGORICAL OUTLOOK POINTS DAY 1
+
+... CATEGORICAL ...
+
+TSTM 30000080 31000120 31509950 30000080
+MRGL 34210021 35009940 34309880 34210021
+SLGT 36009600 37009500 38009600 36009600
+&&
+"""
+
+
 class ParserTests(unittest.TestCase):
     def test_day1_image_urls_follow_current_issue_time(self) -> None:
         spec = bot.BUNDLES[0]
@@ -101,6 +140,24 @@ class ParserTests(unittest.TestCase):
         self.assertIn(b'name="payload_json"', body)
         self.assertIn(b'name="files[0]"; filename="day1_categorical.png"', body)
         self.assertIn(json.dumps({"username": "SPC Outlook Bot"}).encode("utf-8"), body)
+
+    def test_pts_coord_parser_handles_longitudes_west_of_100(self) -> None:
+        self.assertEqual(bot.parse_pts_coord("37009500"), (-95.0, 37.0))
+        self.assertEqual(bot.parse_pts_coord("34210021"), (-100.21, 34.21))
+        self.assertEqual(bot.parse_pts_coord("30000080"), (-100.8, 30.0))
+
+    def test_pts_text_parser_extracts_maps_and_metadata(self) -> None:
+        product = bot.parse_pts_text(PTS_DAY1_TEXT, bot.BUNDLES[0])
+
+        self.assertEqual(product.product_id, "PTSDY1:131630Z")
+        self.assertEqual(product.issued, "1130 AM CDT SAT JUN 13 2026")
+        self.assertEqual(product.valid, "131630Z - 141200Z")
+        self.assertEqual(set(product.maps), {"categorical", "tornado", "wind", "hail"})
+        self.assertIn("MRGL", product.maps["categorical"])
+        self.assertIn("0.02", product.maps["tornado"])
+        self.assertIn("0.15", product.maps["wind"])
+        self.assertIn("CIG1", product.maps["wind"])
+        self.assertEqual(product.maps["categorical"]["MRGL"][0][0], (-100.21, 34.21))
 
 
 if __name__ == "__main__":

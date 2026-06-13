@@ -1,12 +1,14 @@
 # SPC Outlook Discord Bot
 
-Post official Storm Prediction Center outlook maps to Discord as soon as new outlooks appear.
+Post SPC outlook map bundles to Discord as soon as new outlook geometry is available.
 
-This bot is intentionally conservative: it does not redraw polygons, render custom overlays, or transform SPC GIS data into new maps. It downloads the finished official SPC outlook plot images and posts those images as bundled Discord webhook messages.
+By default, this bot runs in `custom-only` mode: it renders fast SPC-styled maps from official SPC PTS text products, posts them as four bundled Discord messages, and does not use NOAA/NWS logos. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
+
+Proof bundle: [docs/proof](docs/proof/index.html)
 
 ## What It Posts
 
-Each new issue becomes four image-only Discord messages:
+Each full current-set run becomes four image-only Discord messages:
 
 | Message | Maps attached |
 | --- | --- |
@@ -15,33 +17,33 @@ Each new issue becomes four image-only Discord messages:
 | Day 3 | categorical, probabilistic |
 | Day 4-8 | combined Day 4-8, Day 4, Day 5, Day 6, Day 7, Day 8 |
 
-Proof bundle: [docs/proof](docs/proof/index.html)
+## Render Modes
 
-## How It Gets Updates Fast
+| Mode | Behavior |
+| --- | --- |
+| `custom-only` | Default. Posts fast custom maps rendered from official SPC PTS text. Keeps the output to four bundled messages. |
+| `custom-first` | Posts the fast PTS render immediately, then posts the official SPC image bundle when those files appear. |
+| `official-only` | Posts only the exact official SPC PNG/GIF files from the SPC web pages. Slower, but no custom rendering. |
+| `both` | Posts both products whenever a refresh runs. Mostly useful for testing. |
 
-Fast path:
+## Why It Is Fast
 
-- Listen to a local `nwws-rs` stream for `KWNS` outlook products: `PTS*` and `SWO*`.
-- When NWWS fires, immediately fetch the live SPC page and retry for the official images in case the text product arrives a few seconds before the web images.
+Fastest path:
+
+1. `nwws-rs` receives a `KWNS` PTS product such as `PTSDY1`.
+2. This bot reads the raw bulletin from the local SSE event.
+3. The PTS polygons are parsed immediately.
+4. The bot renders the map bundle locally and posts it to Discord.
+
+That path does not wait for SPC's finished web PNG/GIF files. On the local proof run, all 16 current maps rendered in about 8 seconds total after fetching the current PTS text. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
+
+Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. The exact delay varies by outlook cycle and by SPC web publishing timing.
 
 Fallback path:
 
-- Poll the SPC outlook pages directly, defaulting to every 20 seconds.
-- Dedupe by product id, issue/update time, and image hashes so restarts do not spam old outlooks.
-
-## Speed Expectations
-
-With NWWS enabled, speed should be comparable to other serious NWWS/NOAAPORT-triggered weather bots:
-
-1. SPC issues the outlook text product.
-2. `nwws-rs` receives the `KWNS` `PTS*` or `SWO*` product and sends an SSE event locally.
-3. This bot immediately fetches the matching SPC outlook page.
-4. If the official image files are not live yet, the bot retries every `SPC_FETCH_RETRY_SECONDS` seconds, up to `SPC_TRIGGER_FETCH_ATTEMPTS` attempts.
-5. As soon as the official SPC images are available, the bot posts the bundle.
-
-Default trigger-mode timing is usually bounded by official SPC image availability plus a retry interval, not by the 20-second fallback poll. With no NWWS stream, detection is bounded by `SPC_POLL_SECONDS`.
-
-The bot intentionally does not try to beat the official SPC plot images by rendering its own polygons. A custom polygon renderer may post earlier, but that is a different product. This bot optimizes for getting the official plots out quickly.
+- If NWWS is unavailable, the bot polls the SPC outlook pages directly.
+- Default polling cadence is 20 seconds.
+- Dedupe uses product id, issue/update time, and image hashes so restarts do not spam old outlooks.
 
 ## Quick Start: Bare Python
 
@@ -50,6 +52,9 @@ Requires Python 3.11+.
 ```powershell
 git clone https://github.com/FahrenheitResearch/spc-outlook-discord-bot.git
 cd spc-outlook-discord-bot
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 copy .env.example .env
 notepad .env
 ```
@@ -58,6 +63,7 @@ Set:
 
 ```text
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+SPC_RENDER_MODE=custom-only
 ```
 
 Do a local proof run without posting:
@@ -75,6 +81,9 @@ Run continuously:
 On Linux/macOS:
 
 ```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
 cp .env.example .env
 $EDITOR .env
 ./run_bot.sh
@@ -88,7 +97,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The container uses polling unless you point `NWWS_SSE_URLS` at an `nwws-rs` service reachable from the container.
+The container uses polling unless `NWWS_SSE_URLS` points at an `nwws-rs` service reachable from inside the container.
 
 ## Fastest Mode With NWWS
 
@@ -109,19 +118,20 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS
 http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 ```
 
-`PTS` catches outline/map geometry products such as `PTSDY1`, `PTSDY2`, `PTSDY3`, and `PTSD48`. `SWO` catches the discussion products. Either can trigger a map refresh.
+`PTS` is the fastest trigger because it carries the outlook geometry. `SWO` discussion products can still trigger a refresh, but the bot may need to fetch the matching PTS text from SPC if the raw geometry was not in the event.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DISCORD_WEBHOOK_URL` | unset | Discord webhook destination. Required unless dry-running. |
+| `SPC_RENDER_MODE` | `custom-only` | `custom-only`, `custom-first`, `official-only`, or `both`. |
 | `SPC_MESSAGE_CONTENT` | `none` | `none`, `short`, or `debug`. `none` posts image-only messages. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
 | `SPC_FETCH_ATTEMPTS` | `4` | Normal fetch retry count. |
-| `SPC_TRIGGER_FETCH_ATTEMPTS` | `12` | Retry count after an NWWS trigger, to bridge image lag. |
+| `SPC_TRIGGER_FETCH_ATTEMPTS` | `12` | Retry count after an NWWS trigger, mainly for official-image modes. |
 | `SPC_FETCH_RETRY_SECONDS` | `5` | Delay between fetch retries. |
-| `SPC_PRIME_CURRENT_ON_START` | `1` | Mark current outlooks seen on startup so old maps are not posted. |
+| `SPC_PRIME_CURRENT_ON_START` | `1` | Mark current outlooks seen on startup so old maps are not posted. Also warms renderer assets. |
 | `SPC_POST_CURRENT_ON_START` | `0` | Post current bundles immediately on startup. |
 | `SPC_STATE_FILE` | `data/state.json` | Dedupe state file. |
 | `SPC_DRY_RUN_DIR` | `data/dry-run` | Dry-run image output directory. |
@@ -134,14 +144,15 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 - Keep `.env` private. It contains your Discord webhook.
 - The bot writes runtime files under `data/`, which is ignored by git.
 - Discord webhooks currently allow enough attachments for each bundle; the largest bundle here is six images.
-- If NWWS is down, the direct SPC polling fallback keeps running.
-- If SPC changes its page structure, CI tests should catch the parser contract, and runtime logs will say which bundle failed.
+- The first custom render may download/cache Cartopy Natural Earth map files. The default startup prime helps warm that before a live post.
+- If NWWS is down, direct SPC polling keeps running.
+- If SPC changes its page or PTS structure, CI tests cover the parser contract, and runtime logs will say which bundle failed.
 
-## Why Official Plots Only
+## Public-Safety Boundary
 
-Forwarded weather bot posts often contain custom-rendered maps, simplified polygons, or private styling that can subtly change what people think the official outlook says. This project is built to reduce that ambiguity: the posted attachment is the SPC map image itself, fetched from the SPC outlook page.
+The fast maps are generated from official SPC PTS text products, but they are not official NOAA/NWS/SPC graphics. They are labeled as unofficial fast renders and intentionally omit NOAA/NWS logos. For life-safety decisions, check SPC/NWS directly.
 
-That does not replace checking SPC/NWS directly for life-safety decisions. Treat this as fast redistribution of official graphics, not an alerting authority.
+Use `official-only` when your priority is exact SPC web graphics. Use `custom-only` when your priority is getting the official outlook geometry into Discord as quickly as practical.
 
 ## Development
 
@@ -150,4 +161,4 @@ python -m unittest discover -s tests
 python -m py_compile spc_outlook_bot.py
 ```
 
-The test suite uses static SPC-like HTML fixtures and does not hit the network.
+The unit tests use static SPC-like fixtures and do not hit the network.
