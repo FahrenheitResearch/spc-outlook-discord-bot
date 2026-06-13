@@ -5,7 +5,7 @@
   "updated": "2026-06-13 1737Z",
   "product_id": "preview:geojson:day2otlk_20260613_1730:20260614T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day2otlk.html",
-  "post_key": "cd97d8052ba319c9dbfcf94b52c7882865c7172a66d098c1fd76343a1cd99355",
+  "post_key": "10cf1d7d57cdd9198860b0b82b12c5c8009907c55282186ddac8e11ea356d9bc",
   "images": [
     {
       "label": "categorical",
@@ -20,24 +20,24 @@
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/tornado",
       "filename": "day2_fast_tornado.png",
       "content_type": "image/png",
-      "sha256": "63ca677c2b39aceabbca605424fc91df3c1497462b32fa845daf8283a1cbc9ec",
-      "bytes": 383528
+      "sha256": "538be2df0d3895c42c5b42f4c2b466a2ab207291cdbd5d8a6bde6f966c64d98c",
+      "bytes": 385567
     },
     {
       "label": "wind",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/wind",
       "filename": "day2_fast_wind.png",
       "content_type": "image/png",
-      "sha256": "096589fdbe7e1176f52d864af1c8c19fae890f6516be5d095e140c6d8141f9ed",
-      "bytes": 413555
+      "sha256": "781643bd0bf0584fa2adade64c0f8dd9b5e3af56adb850f4d9f644d43ed6a604",
+      "bytes": 415393
     },
     {
       "label": "hail",
       "url": "geojson://geojson:day2otlk_20260613_1730:20260614T120000+0000/hail",
       "filename": "day2_fast_hail.png",
       "content_type": "image/png",
-      "sha256": "4d90bddbb766c9c7ee931806b5ec416dc2d830a9475dcf4d67e58920a0927cb2",
-      "bytes": 379391
+      "sha256": "1cb3f6580649f9f672f4af026c054871f85934f2cf81456695a684273012fd4b",
+      "bytes": 379840
     }
   ]
 }

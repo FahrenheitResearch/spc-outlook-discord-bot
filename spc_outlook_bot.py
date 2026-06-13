@@ -38,7 +38,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 SPC_BASE = "https://www.spc.noaa.gov"
@@ -396,9 +396,9 @@ DAY48_STYLE = {
 
 CIG_ORDER = ("CIG1", "CIG2", "CIG3")
 CIG_STYLE = {
-    "CIG1": ("Intensity 1", "///", 1.5),
-    "CIG2": ("Intensity 2", "xxx", 1.65),
-    "CIG3": ("Intensity 3", "+++", 1.8),
+    "CIG1": ("Intensity 1", "cig1", 1.25),
+    "CIG2": ("Intensity 2", "cig2", 1.25),
+    "CIG3": ("Intensity 3", "cig3", 1.35),
 }
 
 MAJOR_CITY_LABELS = (
@@ -806,6 +806,110 @@ def draw_major_city_labels(ax: Any, transform: Any) -> None:
         )
 
 
+def line_parts(geometry: Any) -> Iterator[Any]:
+    geom_type = getattr(geometry, "geom_type", "")
+    if geom_type == "LineString":
+        yield geometry
+    elif geom_type in {"MultiLineString", "GeometryCollection"}:
+        for part in geometry.geoms:
+            yield from line_parts(part)
+
+
+def cig_hatch_specs(label: str, solid_override: bool = False) -> tuple[tuple[float, tuple[int, tuple[float, ...]] | str], ...]:
+    solid = "solid"
+    dashed: tuple[int, tuple[float, ...]] | str = solid if solid_override else (0, (7.5, 5.0))
+    if label == "CIG1":
+        return ((0.50, dashed),)
+    if label == "CIG2":
+        return ((-0.50, solid),)
+    if label == "CIG3":
+        return ((0.50, solid), (-0.50, solid))
+    return ((0.50, dashed),)
+
+
+def cig_hatch_lines(geometry: Any, slope: float) -> list[Any]:
+    from shapely.geometry import LineString
+
+    min_x, min_y, max_x, max_y = geometry.bounds
+    span = max(max_x - min_x, max_y - min_y, 1.0)
+    pad = max(2.0, span * 0.35)
+    spacing = 0.72
+    x0 = min_x - pad
+    x1 = max_x + pad
+    b_min = (min_y - pad) - slope * x1
+    b_max = (max_y + pad) - slope * x0
+    lines: list[Any] = []
+    b = b_min
+    while b <= b_max:
+        raw_line = LineString(((x0, slope * x0 + b), (x1, slope * x1 + b)))
+        clipped = raw_line.intersection(geometry)
+        for part in line_parts(clipped):
+            if part.length >= 0.08:
+                lines.append(part)
+        b += spacing
+    return lines
+
+
+def draw_cig_overlay(ax: Any, geometry: Any, label: str, transform: Any) -> None:
+    _legend, _pattern, outline_width = CIG_STYLE.get(label, (label, "cig1", 1.25))
+    base_zorder = 32 + (CIG_ORDER.index(label) if label in CIG_ORDER else 0)
+    ax.add_geometries(
+        [geometry],
+        crs=transform,
+        facecolor="none",
+        edgecolor="#111111",
+        linewidth=outline_width,
+        zorder=base_zorder,
+    )
+    for slope, line_style in cig_hatch_specs(label):
+        lines = cig_hatch_lines(geometry, slope)
+        if not lines:
+            continue
+        ax.add_geometries(
+            lines,
+            crs=transform,
+            facecolor="none",
+            edgecolor="#111111",
+            linewidth=1.05,
+            linestyle=line_style,
+            zorder=base_zorder + 0.2,
+        )
+
+
+def draw_cig_legend_symbol(ax: Any, rect: Any, pattern: str) -> None:
+    x, y = rect.get_xy()
+    width = rect.get_width()
+    height = rect.get_height()
+    specs = {
+        "cig1": ((0.50, (0, (5.5, 3.5))),),
+        "cig2": ((-0.50, "solid"),),
+        "cig3": ((0.50, "solid"), (-0.50, "solid")),
+    }.get(pattern, ((0.50, (0, (5.5, 3.5))),))
+    for slope, line_style in specs:
+        step = width * 0.28
+        start = x - width
+        end = x + width * 2.0
+        cursor = start
+        while cursor <= end:
+            x0 = cursor
+            x1 = cursor + width * 1.35
+            y0 = y + (0.02 * height if slope > 0 else height * 0.98)
+            y1 = y0 + slope * (x1 - x0)
+            line = ax.plot(
+                [x0, x1],
+                [y0, y1],
+                transform=ax.transAxes,
+                color="#111111",
+                linewidth=1.05,
+                linestyle=line_style,
+                solid_capstyle="butt",
+                dash_capstyle="butt",
+                zorder=4,
+            )[0]
+            line.set_clip_path(rect)
+            cursor += step
+
+
 def preview_source_footer(product: PtsProduct) -> str:
     if product.source == "geojson":
         return "UNOFFICIAL FAST RENDER FROM OFFICIAL SPC GEOJSON - not an official SPC graphic"
@@ -878,16 +982,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             if geometry.is_empty:
                 continue
             if label.startswith("CIG"):
-                _legend, hatch, line_width = CIG_STYLE.get(label, (label, "///", 1.5))
-                ax.add_geometries(
-                    [geometry],
-                    crs=transform,
-                    facecolor=(1.0, 1.0, 1.0, 0.0),
-                    edgecolor="#111111",
-                    linewidth=line_width,
-                    hatch=hatch,
-                    zorder=32 + CIG_ORDER.index(label) if label in CIG_ORDER else 32,
-                )
+                draw_cig_overlay(ax, geometry, label, transform)
             else:
                 _legend, face, edge = preview_style_for_label(map_label, label)
                 ax.add_geometries(
@@ -966,8 +1061,8 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             legend_entries.append((legend, face, edge, ""))
         shown_cig_labels = cig_labels_for_map(product, map_label) or allowed_cig_labels_for_map(map_label)
         for label in shown_cig_labels:
-            legend, hatch, _line_width = CIG_STYLE[label]
-            legend_entries.append((legend, "white", "#111111", hatch))
+            legend, pattern, _line_width = CIG_STYLE[label]
+            legend_entries.append((legend, "white", "#111111", pattern))
         legend_title = "Probability"
 
     legend_height = min(0.395, 0.115 + 0.037 * len(legend_entries))
@@ -977,23 +1072,44 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     legend_ax.add_patch(
         Rectangle((0, 0), 1, 1, transform=legend_ax.transAxes, facecolor="#ffffff", edgecolor="#111111", linewidth=1.2)
     )
-    legend_ax.text(0.50, 0.925, legend_title, ha="center", va="center", fontsize=16, fontweight="bold")
+    legend_ax.text(
+        0.50,
+        0.925,
+        legend_title,
+        transform=legend_ax.transAxes,
+        ha="center",
+        va="center",
+        fontsize=16,
+        fontweight="bold",
+        zorder=6,
+    )
     y = 0.815
     step = 0.078 if len(legend_entries) > 8 else 0.098 if len(legend_entries) > 6 else 0.116
-    for legend, face, edge, hatch in legend_entries:
-        legend_ax.add_patch(
-            Rectangle(
-                (0.075, y - 0.034),
-                0.205,
-                0.068,
-                transform=legend_ax.transAxes,
-                facecolor=face,
-                edgecolor=edge,
-                linewidth=2.15,
-                hatch=hatch or None,
-            )
+    for legend, face, edge, pattern in legend_entries:
+        swatch = Rectangle(
+            (0.075, y - 0.034),
+            0.205,
+            0.068,
+            transform=legend_ax.transAxes,
+            facecolor=face,
+            edgecolor=edge,
+            linewidth=2.15,
         )
-        legend_ax.text(0.335, y, legend, ha="left", va="center", fontsize=13.4)
+        legend_ax.add_patch(swatch)
+        if pattern.startswith("cig"):
+            draw_cig_legend_symbol(legend_ax, swatch, pattern)
+        else:
+            swatch.set_hatch(pattern or None)
+        legend_ax.text(
+            0.335,
+            y,
+            legend,
+            transform=legend_ax.transAxes,
+            ha="left",
+            va="center",
+            fontsize=13.4,
+            zorder=6,
+        )
         y -= step
 
     if not any(map_polygons.values()):

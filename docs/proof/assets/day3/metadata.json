@@ -5,7 +5,7 @@
   "updated": "2026-06-13 0634Z",
   "product_id": "preview:geojson:day3otlk_20260613_0730:20260615T120000+0000",
   "page_url": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
-  "post_key": "c06a2250f9e6a8b005b4a9d65a63b57afbde94a5e9f65a22051effe31baab7d6",
+  "post_key": "9b42a6967ca15900748f9099c78877aeeaf58b2db0ead8c14dd9f4e150b77e48",
   "images": [
     {
       "label": "categorical",
@@ -20,8 +20,8 @@
       "url": "geojson://geojson:day3otlk_20260613_0730:20260615T120000+0000/probabilistic",
       "filename": "day3_fast_probabilistic.png",
       "content_type": "image/png",
-      "sha256": "0c0180f830b96f5569f03b28770b7c43d7969e135d4d001fd673dddfdc94bcca",
-      "bytes": 376431
+      "sha256": "81c430dd5b245f9000501f82f83efa5b068c2cc49731db939b1e1a9531a9ff82",
+      "bytes": 378161
     }
   ]
 }
