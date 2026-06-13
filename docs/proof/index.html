@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SPC Outlook Bot Proof Bundles</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #18212f;
+      --muted: #5d6878;
+      --line: #d7dde7;
+      --panel: #f5f7fa;
+      --accent: #005ea8;
+      --surface: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #e9edf3;
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.4;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+    }
+
+    .bar {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      padding: 4px 8px;
+      border-radius: 4px;
+      white-space: nowrap;
+    }
+
+    main {
+      max-width: 1480px;
+      margin: 0 auto;
+      padding: 20px 18px 48px;
+    }
+
+    .bundle {
+      margin: 0 0 28px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .bundle-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 13px;
+      text-align: right;
+    }
+
+    .maps {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+      gap: 16px;
+    }
+
+    figure {
+      margin: 0;
+      border: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    figcaption {
+      border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .label {
+      font-weight: 700;
+      color: var(--ink);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .source {
+      color: var(--accent);
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .source:hover {
+      text-decoration: underline;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #f0f2f6;
+    }
+
+    details {
+      border-top: 1px solid var(--line);
+      padding: 8px 12px 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    code {
+      font-family: Consolas, "Liberation Mono", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 760px) {
+      .bar,
+      .bundle-head,
+      figcaption {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .status,
+      .meta {
+        justify-content: flex-start;
+        text-align: left;
+      }
+
+      main {
+        padding-left: 10px;
+        padding-right: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <h1>SPC Outlook Bot Proof Bundles</h1>
+      <div class="status" aria-label="Proof summary">
+        <span class="chip">Generated 2026-06-13 16:32 UTC</span>
+        <span class="chip">4 bot messages</span>
+        <span class="chip">16 official SPC maps</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="bundle" id="day1">
+      <div class="bundle-head">
+        <h2>Message 1: SPC Day 1 Outlook</h2>
+        <div class="meta">PTSDY1202606131300<br>Updated Sat Jun 13 12:53:59 UTC 2026</div>
+      </div>
+      <div class="maps">
+        <figure>
+          <figcaption><span class="label">Categorical</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day1otlk_1300.png">SPC source</a></figcaption>
+          <img src="assets/day1/day1_categorical.png" alt="SPC Day 1 categorical outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day1_categorical.png | 441689 bytes | sha256 d6486b739bad9f42b5d00755cc18e7e0747653af1b076a6f0ae6f374572c40b9</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Tornado</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_torn.png">SPC source</a></figcaption>
+          <img src="assets/day1/day1_tornado.png" alt="SPC Day 1 tornado probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day1_tornado.png | 348874 bytes | sha256 aa5d8ddeb37794441be550a72b490fe4ec2914323d3ca35160ed4922b37aee7d</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Wind</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_wind.png">SPC source</a></figcaption>
+          <img src="assets/day1/day1_wind.png" alt="SPC Day 1 wind probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day1_wind.png | 390930 bytes | sha256 bab9504fb663def311e1bfe9d1698e1c112e7905c348a393665f94030dd75f05</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Hail</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_hail.png">SPC source</a></figcaption>
+          <img src="assets/day1/day1_hail.png" alt="SPC Day 1 hail probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day1_hail.png | 369032 bytes | sha256 2a58f3cfed3248ffafbf25fe7f48d935da7cfc10126ee2005b05dd5156542cc2</code></details>
+        </figure>
+      </div>
+    </section>
+
+    <section class="bundle" id="day2">
+      <div class="bundle-head">
+        <h2>Message 2: SPC Day 2 Outlook</h2>
+        <div class="meta">PTSDY2202606130600<br>Updated Sat Jun 13 05:15:47 UTC 2026</div>
+      </div>
+      <div class="maps">
+        <figure>
+          <figcaption><span class="label">Categorical</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day2otlk_0600.png">SPC source</a></figcaption>
+          <img src="assets/day2/day2_categorical.png" alt="SPC Day 2 categorical outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day2_categorical.png | 406966 bytes | sha256 2f46778c1b4d0b56ba4065ceb72b02938cf524e8a49e1991127cdb05412ca653</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Tornado</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_torn.png">SPC source</a></figcaption>
+          <img src="assets/day2/day2_tornado.png" alt="SPC Day 2 tornado probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day2_tornado.png | 333686 bytes | sha256 ac2224c2250f8b065ab1b32d1622d4beba6f3b9168748f8240b7b8739d4b2ef2</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Wind</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_wind.png">SPC source</a></figcaption>
+          <img src="assets/day2/day2_wind.png" alt="SPC Day 2 wind probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day2_wind.png | 361219 bytes | sha256 2ea8c76b73459827b80d638408498e1f662e8a2bf9d4c667cd886b504638536c</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Hail</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day2probotlk_0600_hail.png">SPC source</a></figcaption>
+          <img src="assets/day2/day2_hail.png" alt="SPC Day 2 hail probability outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day2_hail.png | 332913 bytes | sha256 50d66d62bad16212d37131dd7ab9dc05ece5a01985133a68cbe1f7ce4491eaf2</code></details>
+        </figure>
+      </div>
+    </section>
+
+    <section class="bundle" id="day3">
+      <div class="bundle-head">
+        <h2>Message 3: SPC Day 3 Outlook</h2>
+        <div class="meta">PTSDY3202606130730<br>Updated Sat Jun 13 06:34:40 UTC 2026</div>
+      </div>
+      <div class="maps">
+        <figure>
+          <figcaption><span class="label">Categorical</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day3otlk_0730.png">SPC source</a></figcaption>
+          <img src="assets/day3/day3_categorical.png" alt="SPC Day 3 categorical outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day3_categorical.png | 380908 bytes | sha256 a67b6aaef391bf8bf4700097b087240eb5e62e11fc25bbb44faa6e87d3a91bc3</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Probabilistic</span><a class="source" href="https://www.spc.noaa.gov/products/outlook/day3prob_0730.png">SPC source</a></figcaption>
+          <img src="assets/day3/day3_probabilistic.png" alt="SPC Day 3 probabilistic outlook map" width="1630" height="1110">
+          <details><summary>File proof</summary><code>day3_probabilistic.png | 333199 bytes | sha256 38be0558645d02cef2934288cdc445fccb911b4935ad84bf1d9a00be25be4840</code></details>
+        </figure>
+      </div>
+    </section>
+
+    <section class="bundle" id="day4-8">
+      <div class="bundle-head">
+        <h2>Message 4: SPC Day 4-8 Outlook</h2>
+        <div class="meta">PTSD4820260613<br>Updated Sat Jun 13 07:56:03 UTC 2026</div>
+      </div>
+      <div class="maps">
+        <figure>
+          <figcaption><span class="label">Day 4-8</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day48prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day4-8.gif" alt="SPC Day 4-8 combined probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day4-8.gif | 176183 bytes | sha256 aa8a91805d79c5a4a62106a0b7904ab56a6f66c72dd11b397f6f85e9d854c5a0</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Day 4</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day4prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day4.gif" alt="SPC Day 4 probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day4.gif | 27577 bytes | sha256 17ebb56846e58b3e4b964d61c7ba428f26afe5ff74ac92d66a28d25e99c1bbf4</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Day 5</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day5prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day5.gif" alt="SPC Day 5 probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day5.gif | 27919 bytes | sha256 1751c7c8ad39bbab449d47c8612b13c984bc7a4ede05076144e0397d417ded82</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Day 6</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day6prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day6.gif" alt="SPC Day 6 probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day6.gif | 28144 bytes | sha256 b05f2a14ce7ce745117f1f7c31d5e8bc40b528937a0fa9ba75e357282fbe96f7</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Day 7</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day7prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day7.gif" alt="SPC Day 7 probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day7.gif | 27577 bytes | sha256 0942ad8feb757a01100d048893ba4c76ee61b3bb9928b1c5ed58fbdcb0e43f92</code></details>
+        </figure>
+        <figure>
+          <figcaption><span class="label">Day 8</span><a class="source" href="https://www.spc.noaa.gov/products/exper/day4-8/day8prob.gif">SPC source</a></figcaption>
+          <img src="assets/day4-8/day4-8_day8.gif" alt="SPC Day 8 probability outlook map" width="815" height="555">
+          <details><summary>File proof</summary><code>day4-8_day8.gif | 27596 bytes | sha256 aaf5249801a6befd17f0b6ee47e23a042d5f10606884c113256a4030d4cce59c</code></details>
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

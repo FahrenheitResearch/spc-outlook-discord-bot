@@ -1,0 +1,27 @@
+{
+  "bundle": "day3",
+  "name": "SPC Day 3 Outlook",
+  "title": "Storm Prediction Center Jun 13, 2026 0730 UTC Day 3 Severe Thunderstorm Outlook",
+  "updated": "Sat Jun 13 06:34:40 UTC 2026",
+  "product_id": "PTSDY3202606130730",
+  "page_url": "https://www.spc.noaa.gov/products/outlook/day3otlk.html",
+  "post_key": "93e519f0711d47145512920ed86aff9ccc402b430b1dba19291d3a365e08de6d",
+  "images": [
+    {
+      "label": "categorical",
+      "url": "https://www.spc.noaa.gov/products/outlook/day3otlk_0730.png",
+      "filename": "day3_categorical.png",
+      "content_type": "image/png",
+      "sha256": "a67b6aaef391bf8bf4700097b087240eb5e62e11fc25bbb44faa6e87d3a91bc3",
+      "bytes": 380908
+    },
+    {
+      "label": "probabilistic",
+      "url": "https://www.spc.noaa.gov/products/outlook/day3prob_0730.png",
+      "filename": "day3_probabilistic.png",
+      "content_type": "image/png",
+      "sha256": "38be0558645d02cef2934288cdc445fccb911b4935ad84bf1d9a00be25be4840",
+      "bytes": 333199
+    }
+  ]
+}

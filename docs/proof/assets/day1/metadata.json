@@ -1,0 +1,43 @@
+{
+  "bundle": "day1",
+  "name": "SPC Day 1 Outlook",
+  "title": "Storm Prediction Center Jun 13, 2026 1300 UTC Day 1 Convective Outlook",
+  "updated": "Sat Jun 13 12:53:59 UTC 2026",
+  "product_id": "PTSDY1202606131300",
+  "page_url": "https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+  "post_key": "66714f7236cc87218057becd70362d5c43e2bb9386c6999efba15dfc1555da06",
+  "images": [
+    {
+      "label": "categorical",
+      "url": "https://www.spc.noaa.gov/products/outlook/day1otlk_1300.png",
+      "filename": "day1_categorical.png",
+      "content_type": "image/png",
+      "sha256": "d6486b739bad9f42b5d00755cc18e7e0747653af1b076a6f0ae6f374572c40b9",
+      "bytes": 441689
+    },
+    {
+      "label": "tornado",
+      "url": "https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_torn.png",
+      "filename": "day1_tornado.png",
+      "content_type": "image/png",
+      "sha256": "aa5d8ddeb37794441be550a72b490fe4ec2914323d3ca35160ed4922b37aee7d",
+      "bytes": 348874
+    },
+    {
+      "label": "wind",
+      "url": "https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_wind.png",
+      "filename": "day1_wind.png",
+      "content_type": "image/png",
+      "sha256": "bab9504fb663def311e1bfe9d1698e1c112e7905c348a393665f94030dd75f05",
+      "bytes": 390930
+    },
+    {
+      "label": "hail",
+      "url": "https://www.spc.noaa.gov/products/outlook/day1probotlk_1300_hail.png",
+      "filename": "day1_hail.png",
+      "content_type": "image/png",
+      "sha256": "2a58f3cfed3248ffafbf25fe7f48d935da7cfc10126ee2005b05dd5156542cc2",
+      "bytes": 369032
+    }
+  ]
+}

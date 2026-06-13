@@ -1,0 +1,8 @@
+services:
+  spc-outlook-bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
