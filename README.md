@@ -189,3 +189,17 @@ python -m py_compile spc_outlook_bot.py
 ```
 
 The unit tests use static SPC-like fixtures and do not hit the network.
+
+### Local Archive Validation
+
+To spot-check polygon rendering against official SPC archive graphics, build a local proof page:
+
+```bash
+python tools/validate_day1_archive.py --output-dir data/day1-polygon-smoke \
+  --only-issue 20260305_1630 \
+  --only-issue 20260310_1630 \
+  --only-issue 20260425_1630 \
+  --only-issue 20260613_1630
+```
+
+The validator filters Day 1 outlooks to ENH/MDT/HIGH products, fetches official archive images for local comparison, renders the bot's custom maps from archived SPC GeoJSON or shapefiles, and writes `index.html`, `summary.json`, and `manifest.json` under the output directory. Keep these outputs in `data/`; they are intentionally ignored by git.

@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
   "cartopy>=0.25",
   "matplotlib>=3.10",
+  "pyshp>=2.3",
   "shapely>=2.1",
 ]
 
