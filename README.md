@@ -148,6 +148,8 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DISCORD_WEBHOOK_URL` | unset | Discord webhook destination. Required unless dry-running. |
+| `DISCORD_BOT_TOKEN` / `DISCORD_TOKEN` | unset | Alternative to a webhook: post through an existing Discord bot token. |
+| `DISCORD_CHANNEL_ID` | unset | Discord channel for bot-token posting. |
 | `DISCORD_USERNAME` | `Fast Severe Outlook Bot` | Display name used by the Discord webhook. Keep this unofficial unless you have agency permission. |
 | `SPC_RENDER_MODE` | `custom-only` | `custom-only`, `custom-first`, `official-only`, or `both`. |
 | `SPC_CUSTOM_SOURCE` | `geojson-first` | `geojson-first`, `geojson-only`, or `pts-only`. |

@@ -1447,11 +1447,10 @@ def multipart_body(payload: dict[str, Any], images: tuple[MapImage, ...]) -> tup
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
-def post_to_discord(snapshot: BundleSnapshot, webhook_url: str, *, content_mode: str) -> None:
-    payload: dict[str, Any] = {
-        "username": os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot"),
-        "allowed_mentions": {"parse": []},
-    }
+def discord_payload(snapshot: BundleSnapshot, *, content_mode: str, include_username: bool) -> dict[str, Any]:
+    payload: dict[str, Any] = {"allowed_mentions": {"parse": []}}
+    if include_username:
+        payload["username"] = os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot")
     if content_mode == "short":
         payload["content"] = f"{snapshot.spec.name} - {snapshot.updated or snapshot.product_id}"
     elif content_mode == "debug":
@@ -1462,6 +1461,11 @@ def post_to_discord(snapshot: BundleSnapshot, webhook_url: str, *, content_mode:
             f"{labels}\n"
             f"{snapshot.page_url}"
         )
+    return payload
+
+
+def post_to_discord_webhook(snapshot: BundleSnapshot, webhook_url: str, *, content_mode: str) -> None:
+    payload = discord_payload(snapshot, content_mode=content_mode, include_username=True)
     body, content_type = multipart_body(payload, snapshot.images)
     headers = {"Content-Type": content_type}
 
@@ -1483,10 +1487,44 @@ def post_to_discord(snapshot: BundleSnapshot, webhook_url: str, *, content_mode:
         raise BotError(f"Discord webhook returned HTTP {exc.code}: {detail}") from exc
 
 
+def post_to_discord_channel(
+    snapshot: BundleSnapshot,
+    *,
+    bot_token: str,
+    channel_id: str,
+    content_mode: str,
+) -> None:
+    payload = discord_payload(snapshot, content_mode=content_mode, include_username=False)
+    body, content_type = multipart_body(payload, snapshot.images)
+    headers = {
+        "Authorization": f"Bot {bot_token}",
+        "Content-Type": content_type,
+    }
+    url = f"https://discord.com/api/v10/channels/{urllib.parse.quote(channel_id)}/messages"
+    try:
+        with request(
+            url,
+            method="POST",
+            data=body,
+            headers=headers,
+            timeout=30,
+            cache_bust=False,
+        ) as response:
+            response.read()
+            status = getattr(response, "status", response.getcode())
+            if status < 200 or status >= 300:
+                raise BotError(f"Discord channel post returned HTTP {status}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise BotError(f"Discord channel post returned HTTP {exc.code}: {detail}") from exc
+
+
 def post_bundle(
     snapshot: BundleSnapshot,
     *,
     webhook_url: str | None,
+    bot_token: str | None,
+    channel_id: str | None,
     dry_run: bool,
     dry_run_dir: Path,
     content_mode: str,
@@ -1494,10 +1532,13 @@ def post_bundle(
     if dry_run:
         write_bundle_files(snapshot, dry_run_dir)
         return f"dry-run wrote {len(snapshot.images)} image(s) to {dry_run_dir / snapshot.spec.key}"
-    if not webhook_url:
-        raise BotError("DISCORD_WEBHOOK_URL is required unless --dry-run is used")
-    post_to_discord(snapshot, webhook_url, content_mode=content_mode)
-    return f"posted {len(snapshot.images)} image(s) to Discord"
+    if webhook_url:
+        post_to_discord_webhook(snapshot, webhook_url, content_mode=content_mode)
+        return f"posted {len(snapshot.images)} image(s) to Discord webhook"
+    if bot_token and channel_id:
+        post_to_discord_channel(snapshot, bot_token=bot_token, channel_id=channel_id, content_mode=content_mode)
+        return f"posted {len(snapshot.images)} image(s) to Discord channel"
+    raise BotError("DISCORD_WEBHOOK_URL or DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID is required unless --dry-run is used")
 
 
 def snapshot_with_retries(spec: BundleSpec, attempts: int, delay: float) -> BundleSnapshot:
@@ -1608,6 +1649,8 @@ class OutlookBot:
         result = post_bundle(
             snapshot,
             webhook_url=self.args.discord_webhook_url,
+            bot_token=self.args.discord_bot_token,
+            channel_id=self.args.discord_channel_id,
             dry_run=self.args.dry_run,
             dry_run_dir=Path(self.args.dry_run_dir),
             content_mode=self.args.message_content,
@@ -1776,6 +1819,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--discord-webhook-url",
         default=os.getenv("DISCORD_WEBHOOK_URL"),
         help="Discord webhook URL; required unless --dry-run is used",
+    )
+    parser.add_argument(
+        "--discord-bot-token",
+        default=os.getenv("DISCORD_BOT_TOKEN") or os.getenv("DISCORD_TOKEN"),
+        help="Discord bot token alternative to webhook posting",
+    )
+    parser.add_argument(
+        "--discord-channel-id",
+        default=os.getenv("DISCORD_CHANNEL_ID"),
+        help="Discord channel ID for bot-token posting",
     )
     parser.add_argument(
         "--message-content",
