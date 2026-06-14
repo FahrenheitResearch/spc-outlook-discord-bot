@@ -48,6 +48,7 @@ WATER_COLOR = "#6f9fca"
 LAND_COLOR = "#f8f3df"
 DEFAULT_IMAGE_SAFE_SCALE = 0.95
 MAP_EXTENT = (-125.0, -66.0, 24.0, 50.5)
+CONUS_MARINE_BOUNDARY_FILE = Path(__file__).resolve().with_name("assets") / "conus_marine_bnds.txt"
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
@@ -1097,6 +1098,250 @@ def clip_open_pts_fill_to_conus(geometry: Any) -> Any:
     return clipped if not clipped.is_empty else geometry
 
 
+@lru_cache(maxsize=1)
+def conus_marine_boundary() -> Any:
+    from shapely.geometry import Polygon
+
+    # Boundary and winding approach are adapted from pyIEM's mature SPC PTS parser.
+    points: list[tuple[float, float]] = []
+    try:
+        with CONUS_MARINE_BOUNDARY_FILE.open(encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                lon, lat = line.split(",", 1)
+                points.append((float(lon), float(lat)))
+    except OSError as exc:
+        raise BotError(f"could not load CONUS/marine PTS boundary: {CONUS_MARINE_BOUNDARY_FILE}") from exc
+    if len(points) < 3:
+        raise BotError(f"CONUS/marine PTS boundary is too small: {CONUS_MARINE_BOUNDARY_FILE}")
+    if points[0] != points[-1]:
+        points.append(points[0])
+    polygon = Polygon(points)
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    if polygon.is_empty:
+        raise BotError(f"CONUS/marine PTS boundary is empty: {CONUS_MARINE_BOUNDARY_FILE}")
+    return polygon
+
+
+def point_outside_conus_marine(point: Any) -> bool:
+    boundary = conus_marine_boundary()
+    return not point.within(boundary) and point.distance(boundary) > 0.001
+
+
+def conus_marine_boundary_point(point: Any) -> Any:
+    boundary = conus_marine_boundary()
+    return boundary.exterior.interpolate(boundary.exterior.project(point))
+
+
+def ensure_pts_segment_endpoints_outside(points: list[tuple[float, float]]) -> Any:
+    from shapely.affinity import translate
+    from shapely.geometry import LineString, Point
+
+    line = LineString(points)
+    for index in (0, -1):
+        point = Point(line.coords[index])
+        if point_outside_conus_marine(point):
+            continue
+        point = conus_marine_boundary_point(point)
+        if point.within(conus_marine_boundary()) or point.distance(conus_marine_boundary()) < 0.001:
+            done = False
+            for multiplier in (0.01, 0.1, 1.0):
+                if done:
+                    break
+                for xoff, yoff in (
+                    (-0.01 * multiplier, -0.01 * multiplier),
+                    (-0.01 * multiplier, 0.0),
+                    (-0.01 * multiplier, 0.01 * multiplier),
+                    (0.0, -0.01 * multiplier),
+                    (0.0, 0.01 * multiplier),
+                    (0.01 * multiplier, -0.01 * multiplier),
+                    (0.01 * multiplier, 0.0),
+                    (0.01 * multiplier, 0.01 * multiplier),
+                ):
+                    nudged = translate(point, xoff=xoff, yoff=yoff)
+                    if not nudged.within(conus_marine_boundary()):
+                        point = nudged
+                        done = True
+                        break
+        coords = list(line.coords)
+        coords[index] = (point.x, point.y)
+        line = LineString(coords)
+    return line
+
+
+def condition_pts_segment(points: list[tuple[float, float]]) -> list[list[tuple[float, float]]]:
+    from shapely.geometry import LineString, Point
+
+    if len(points) < 2:
+        return []
+    if points[0] == points[-1]:
+        return [points] if len(points) > 2 else []
+
+    start = Point(points[0])
+    end = Point(points[-1])
+    if not point_outside_conus_marine(start) and not point_outside_conus_marine(end):
+        start_boundary = conus_marine_boundary_point(start)
+        end_boundary = conus_marine_boundary_point(end)
+        if start.distance(end) < 0.5 * min(start.distance(start_boundary), end.distance(end_boundary)):
+            return [[*points, points[0]]]
+
+    line = ensure_pts_segment_endpoints_outside(points)
+    intersection = line.intersection(conus_marine_boundary())
+    if isinstance(intersection, LineString):
+        return [[tuple(coord) for coord in line.coords]]
+    parts = [
+        part
+        for part in getattr(intersection, "geoms", ())
+        if getattr(part, "geom_type", "") == "LineString" and part.length > 0.2
+    ]
+    if len(parts) == 1:
+        return [[tuple(coord) for coord in ensure_pts_segment_endpoints_outside(list(parts[0].coords)).coords]]
+    return [[tuple(coord) for coord in ensure_pts_segment_endpoints_outside(list(part.coords)).coords] for part in parts]
+
+
+def rhs_split_polygon(polygon: Any, splitter: Any) -> Any | None:
+    from shapely.geometry import GeometryCollection, MultiLineString, MultiPolygon, Point
+    from shapely.ops import split
+
+    split_intersection = splitter.intersection(polygon)
+    if isinstance(split_intersection, (MultiLineString, GeometryCollection)):
+        lines = [
+            part
+            for part in split_intersection.geoms
+            if getattr(part, "geom_type", "") == "LineString" and len(part.coords) >= 2
+        ]
+        if not lines:
+            return None
+        split_intersection = max(lines, key=lambda part: part.length)
+    if getattr(split_intersection, "geom_type", "") != "LineString" or len(split_intersection.coords) < 2:
+        return None
+
+    result = split(polygon, splitter)
+    polygons = [part for part in result.geoms if getattr(part, "geom_type", "") == "Polygon"]
+    if len(polygons) > 2:
+        polygons = [part for part in polygons if part.area > 0.1]
+    if len(polygons) == 1:
+        return polygons[0]
+    if len(polygons) != 2:
+        return None
+
+    first, second = polygons
+    start = Point(split_intersection.coords[0])
+    end = Point(split_intersection.coords[1])
+    start_distance = first.exterior.project(start)
+    end_distance = first.exterior.project(end)
+    return first if end_distance > start_distance else second
+
+
+def wind_open_pts_lines(linestrings: list[Any]) -> list[Any]:
+    rows = []
+    boundary = conus_marine_boundary()
+    for index, line in enumerate(linestrings):
+        start = boundary.exterior.project(line.interpolate(0.0))
+        end = boundary.exterior.project(line.interpolate(line.length))
+        rows.append({"index": index, "start": round(start, 2), "end": round(end, 2)})
+    rows.sort(key=lambda row: row["start"])
+
+    used: set[int] = set()
+    polygons = []
+    for row in rows:
+        index = row["index"]
+        if index in used:
+            continue
+        used.add(index)
+        started_at = row["start"]
+        polygon = rhs_split_polygon(boundary, linestrings[index])
+        if polygon is None:
+            continue
+        ended_at = row["end"]
+        for _ in range(100):
+            if ended_at < started_at:
+                candidates = [
+                    candidate
+                    for candidate in rows
+                    if candidate["index"] not in used and ended_at <= candidate["start"] < started_at
+                ]
+            else:
+                candidates = [
+                    candidate
+                    for candidate in rows
+                    if candidate["index"] not in used
+                    and (candidate["start"] >= ended_at or candidate["start"] < started_at)
+                ]
+            if not candidates:
+                if all(not polygon.equals(existing) for existing in polygons):
+                    polygons.append(polygon)
+                break
+            candidate = candidates[0]
+            used.add(candidate["index"])
+            ended_at = candidate["end"]
+            next_polygon = rhs_split_polygon(polygon, linestrings[candidate["index"]])
+            if next_polygon is None:
+                break
+            polygon = next_polygon
+    return polygons
+
+
+def pts_sequences_to_geometry(sequences: tuple[Any, ...] | list[Any]) -> Any | None:
+    from shapely.geometry import LinearRing, LineString, MultiPolygon, Polygon
+
+    segments: list[list[tuple[float, float]]] = []
+    direct_geometries = []
+    for sequence in sequences:
+        if hasattr(sequence, "geom_type"):
+            direct_geometries.append(sequence)
+            continue
+        points = [tuple(point) for point in sequence if isinstance(point, tuple | list) and len(point) >= 2]
+        for conditioned in condition_pts_segment(points):
+            if len(conditioned) >= 2:
+                segments.append(conditioned)
+
+    polygons = []
+    interiors = []
+    linestrings = []
+    for segment in segments:
+        line = LineString(segment)
+        if segment[0] == segment[-1]:
+            ring = LinearRing(line)
+            if ring.is_ccw:
+                interiors.append(ring)
+            else:
+                polygons.append(Polygon(segment))
+        else:
+            linestrings.append(line)
+
+    if not polygons and not linestrings and len(interiors) == 1:
+        ring = interiors.pop()
+        polygons.append(Polygon(ring.coords[::-1]))
+    if linestrings:
+        polygons.extend(wind_open_pts_lines(linestrings))
+    for interior in interiors:
+        for index, polygon in enumerate(polygons):
+            if not polygon.intersection(interior).is_empty:
+                polygons[index] = Polygon(polygon.exterior, [*polygon.interiors, interior])
+                break
+
+    boundary = conus_marine_boundary()
+    cleaned = []
+    for geometry in (*direct_geometries, *polygons):
+        if not geometry.is_valid:
+            geometry = geometry.buffer(0)
+        if geometry.is_empty:
+            continue
+        clipped = geometry.intersection(boundary)
+        if clipped.is_empty:
+            continue
+        for part in geometry_parts(clipped):
+            if not part.is_empty and part.area > 0.01:
+                cleaned.append(part)
+    if not cleaned:
+        return None
+    return MultiPolygon(cleaned)
+
+
 def repaired_open_pts_geometry(points: list[tuple[float, float]]) -> Any | None:
     from shapely.geometry import Polygon
 
@@ -1434,13 +1679,20 @@ def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ..
 
     for label in DAY48_PROB_ORDER:
         legend, _face, edge = DAY48_PROB_STYLE[label]
-        for polygon_or_geometry in map_polygons.get(label, ()):
-            if is_open_coordinate_sequence(polygon_or_geometry):
-                continue
-            if hasattr(polygon_or_geometry, "geom_type"):
-                geometry = polygon_or_geometry
-            else:
-                geometry = ShapelyPolygon(polygon_or_geometry)
+        polygons = map_polygons.get(label, ())
+        geometries = []
+        if any(is_open_coordinate_sequence(polygon_or_geometry) for polygon_or_geometry in polygons):
+            geometry = pts_sequences_to_geometry(polygons)
+            if geometry is not None:
+                geometries.append(geometry)
+        else:
+            for polygon_or_geometry in polygons:
+                if hasattr(polygon_or_geometry, "geom_type"):
+                    geometry = polygon_or_geometry
+                else:
+                    geometry = ShapelyPolygon(polygon_or_geometry)
+                geometries.append(geometry)
+        for geometry in geometries:
             if not geometry.is_valid:
                 geometry = geometry.buffer(0)
             if geometry.is_empty:
@@ -1472,13 +1724,18 @@ def draw_day48_day_labels(ax: Any, product: PtsProduct, transform: Any) -> None:
     for day_key in DAY48_ORDER:
         geometries = []
         for label in DAY48_PROB_ORDER:
-            for polygon_or_geometry in product.maps.get(day_key, {}).get(label, ()):
-                if is_open_coordinate_sequence(polygon_or_geometry):
-                    continue
-                if hasattr(polygon_or_geometry, "geom_type"):
-                    geometry = polygon_or_geometry
-                else:
-                    geometry = ShapelyPolygon(polygon_or_geometry)
+            polygons = product.maps.get(day_key, {}).get(label, ())
+            if any(is_open_coordinate_sequence(polygon_or_geometry) for polygon_or_geometry in polygons):
+                geometry = pts_sequences_to_geometry(polygons)
+                if geometry is not None and not geometry.is_empty:
+                    geometries.append(geometry)
+                continue
+            for polygon_or_geometry in polygons:
+                geometry = (
+                    polygon_or_geometry
+                    if hasattr(polygon_or_geometry, "geom_type")
+                    else ShapelyPolygon(polygon_or_geometry)
+                )
                 if not geometry.is_valid:
                     geometry = geometry.buffer(0)
                 if not geometry.is_empty:
@@ -1571,6 +1828,30 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     transform = ccrs.PlateCarree()
     for label in order:
         polygons = map_polygons.get(label, ())
+        if product.source == "pts" and polygons:
+            _legend, face, edge = preview_style_for_label(map_label, label)
+            try:
+                geometry = pts_sequences_to_geometry(polygons)
+            except Exception as exc:  # noqa: BLE001
+                log(f"{product.spec.name} {map_label} {label}: mature PTS polygonization failed: {exc}")
+                geometry = None
+            if geometry is not None and not geometry.is_empty:
+                parts = [part for part in geometry_parts(geometry) if not part.is_empty and part.area > 0.01]
+                if parts:
+                    if label.startswith("CIG"):
+                        for part in parts:
+                            draw_cig_overlay(ax, part, label, transform)
+                    else:
+                        ax.add_geometries(
+                            parts,
+                            crs=transform,
+                            facecolor=face,
+                            edgecolor=edge,
+                            linewidth=2.2,
+                            alpha=0.46 if any(is_open_coordinate_sequence(item) for item in polygons) else 0.66,
+                            zorder=9 + order.index(label) if label in order else 9,
+                        )
+            continue
         for polygon_or_geometry in polygons:
             if product.source == "pts" and is_open_coordinate_sequence(polygon_or_geometry):
                 _legend, face, edge = preview_style_for_label(map_label, label)

@@ -33,8 +33,8 @@ Each full current-set run becomes four image-only Discord messages:
 | Source | Behavior |
 | --- | --- |
 | `geojson-only` | Default production mode. Uses official SPC GeoJSON for Day 1-3. Day 4-8 falls back to PTS because SPC does not publish the same live GeoJSON source for it. |
-| `geojson-first` | Faster experimental mode. Uses official SPC GeoJSON when it is current, but switches Day 1-3 to raw PTS when raw PTS has a newer issue time. This can beat GeoJSON publication, but raw text can contain open contours. |
-| `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
+| `geojson-first` | Faster mode. Uses official SPC GeoJSON when it is current, but switches Day 1-3 to raw PTS when raw PTS has a newer issue time. This can beat GeoJSON publication while still preferring closed official GeoJSON when it is already caught up. |
+| `pts-only` | Earliest raw-text geometry path. Uses the raw SPC Points Product and a hardened CONUS/marine-boundary polygonizer for open contours. Best for live testing or speed-first private servers. |
 
 ## Optional Risk Filtering
 
@@ -58,7 +58,7 @@ Fastest path:
 
 That path does not wait for SPC's finished web PNG/GIF plot images. On the local proof run, all 16 current maps rendered in about 6-8 seconds total once the geometry files were reachable. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
 
-Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap; `geojson-first` can reduce that gap by using newer raw PTS, but `geojson-only` is the safer public-server default.
+Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap; `geojson-first` can reduce that gap by using newer raw PTS, and `pts-only` is the fastest raw-text path.
 
 Fallback path:
 
@@ -143,7 +143,7 @@ SPC_PRIME_CURRENT_ON_START=1
 SPC_POST_CURRENT_ON_START=0
 ```
 
-Use `geojson-first` only if you explicitly want the earliest raw-text Day 1-3 map path and accept the open-contour risk. Keep the webhook URL in `/etc/spc-outlook-bot.env`, not in git.
+Use `pts-only` for speed-first live testing. Use `geojson-only` for the most conservative public default. Keep the webhook URL in `/etc/spc-outlook-bot.env`, not in git.
 
 ## Fastest Mode With NWWS
 
@@ -215,6 +215,11 @@ python -m py_compile spc_outlook_bot.py
 ```
 
 The unit tests use static SPC-like fixtures and do not hit the network.
+
+The raw PTS polygonizer is inspired by the Iowa Environmental Mesonet
+[`pyIEM`](https://github.com/akrherz/pyIEM) SPC PTS parser. This repo vendors a
+small CONUS/marine boundary file from pyIEM under `assets/` and keeps the
+implementation dependency-light with Shapely.
 
 ### Local Archive Validation
 

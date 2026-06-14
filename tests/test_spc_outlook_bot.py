@@ -298,6 +298,61 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(repaired.contains(Point((-104.99, 39.74))))  # Denver
         self.assertFalse(repaired.contains(Point((-96.80, 32.78))))  # Dallas
 
+    def test_mature_pts_polygonizer_groups_split_open_contours(self) -> None:
+        segments = (
+            (
+                (-70.62, 46.17), (-69.80, 45.45), (-69.71, 45.12), (-69.93, 44.66),
+                (-71.53, 43.36), (-72.31, 42.21), (-73.11, 40.01),
+            ),
+            (
+                (-75.05, 36.21), (-75.95, 35.79), (-78.26, 34.43), (-78.83, 34.23),
+                (-79.95, 34.53), (-83.59, 33.80), (-84.55, 33.71), (-87.07, 34.20),
+                (-87.75, 34.60), (-87.73, 34.90), (-87.38, 35.30), (-86.07, 35.64),
+                (-83.86, 35.85), (-81.24, 36.55), (-80.36, 37.35), (-80.12, 38.28),
+                (-80.70, 38.71), (-81.62, 39.00), (-83.56, 38.42), (-84.37, 38.58),
+                (-84.94, 38.94), (-84.89, 39.38), (-82.64, 41.16), (-81.47, 42.50),
+            ),
+        )
+
+        geometry = bot.pts_sequences_to_geometry(segments)
+
+        self.assertIsNotNone(geometry)
+        self.assertLess(geometry.area, 150.0)
+        self.assertFalse(geometry.contains(Point((-100.78, 46.81))))  # Bismarck
+        self.assertFalse(geometry.contains(Point((-122.33, 47.61))))  # Seattle
+        self.assertFalse(geometry.contains(Point((-104.99, 39.74))))  # Denver
+        self.assertFalse(geometry.contains(Point((-96.80, 32.78))))  # Dallas
+        self.assertTrue(geometry.contains(Point((-80.84, 35.23))))  # Charlotte
+
+    def test_mature_pts_polygonizer_uses_marine_boundary_for_general_thunder(self) -> None:
+        segments = (
+            (
+                (-113.26, 31.79), (-113.74, 32.70), (-114.11, 33.45), (-114.66, 35.26),
+                (-114.91, 35.97), (-115.33, 36.39), (-115.59, 36.58), (-115.91, 36.64),
+                (-116.52, 36.53), (-117.04, 36.38), (-117.51, 36.27), (-117.90, 36.18),
+                (-118.36, 36.21), (-118.95, 36.41), (-119.97, 37.21), (-120.75, 38.09),
+                (-121.00, 38.47), (-120.84, 39.24), (-120.64, 39.59), (-120.45, 39.62),
+                (-119.82, 39.57), (-119.33, 39.31), (-118.76, 39.30), (-118.04, 39.36),
+                (-117.39, 39.64), (-116.61, 40.01), (-116.07, 40.22), (-115.14, 40.46),
+                (-114.52, 40.49), (-113.81, 40.49), (-113.23, 40.33), (-112.23, 40.28),
+                (-111.07, 40.42), (-110.45, 40.54), (-109.34, 40.58), (-108.39, 40.53),
+                (-106.94, 40.56), (-104.93, 40.71), (-103.89, 40.67), (-102.66, 40.34),
+                (-102.12, 39.92), (-101.71, 39.28), (-101.67, 38.86), (-101.75, 38.57),
+                (-102.01, 36.69), (-101.98, 36.44), (-101.95, 36.14), (-101.75, 35.93),
+                (-100.85, 35.35), (-99.68, 35.04), (-98.00, 35.03), (-94.93, 34.84),
+                (-92.73, 34.69), (-91.89, 34.77), (-91.15, 35.32), (-90.14, 36.42),
+                (-87.97, 39.72), (-85.98, 41.76), (-83.92, 43.29), (-81.35, 44.22),
+            ),
+        )
+
+        geometry = bot.pts_sequences_to_geometry(segments)
+
+        self.assertIsNotNone(geometry)
+        self.assertFalse(geometry.contains(Point((-122.33, 47.61))))  # Seattle
+        self.assertFalse(geometry.contains(Point((-100.78, 46.81))))  # Bismarck
+        self.assertTrue(geometry.contains(Point((-104.99, 39.74))))  # Denver
+        self.assertTrue(geometry.contains(Point((-96.80, 32.78))))  # Dallas
+
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
 
