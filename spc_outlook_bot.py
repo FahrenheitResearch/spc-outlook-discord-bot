@@ -500,6 +500,10 @@ def find_geojson_url(html: str, spec: BundleSpec) -> str | None:
 
 
 def fetch_geojson_product_for_spec(spec: BundleSpec) -> PtsProduct:
+    try:
+        return fetch_direct_geojson_product_for_spec(spec)
+    except Exception as direct_error:  # noqa: BLE001
+        log(f"{spec.name}: direct SPC GeoJSON unavailable, falling back to ZIP: {direct_error}")
     html = fetch_text(spec.page_url)
     geojson_url = find_geojson_url(html, spec)
     if not geojson_url:
@@ -517,6 +521,14 @@ def geojson_slug_for_map(map_label: str) -> str | None:
         "hail": "hail",
         "probabilistic": "prob",
     }.get(map_label)
+
+
+def direct_geojson_url(spec: BundleSpec, map_label: str) -> str | None:
+    slug = geojson_slug_for_map(map_label)
+    if not slug or spec.key not in {"day1", "day2", "day3"}:
+        return None
+    day = spec.key.removeprefix("day")
+    return f"{SPC_BASE}/products/outlook/day{day}otlk_{slug}.lyr.geojson"
 
 
 def spec_supports_geojson(spec: BundleSpec) -> bool:
@@ -540,6 +552,84 @@ def choose_geojson_member(names: list[str], spec: BundleSpec, map_label: str) ->
     if candidates:
         return sorted(candidates)[-1]
     return None
+
+
+def parse_geojson_feature_collection(
+    collection: dict[str, Any],
+    maps: dict[str, dict[str, list[Any]]],
+    map_label: str,
+    first_properties: dict[str, Any],
+) -> dict[str, Any]:
+    from shapely.geometry import shape
+
+    label_geometries = maps.setdefault(map_label, {})
+    for feature in collection.get("features", []):
+        properties = feature.get("properties") or {}
+        if not first_properties:
+            first_properties = dict(properties)
+        label = str(properties.get("LABEL") or "").strip()
+        geometry_dict = feature.get("geometry")
+        if not label or not geometry_dict:
+            continue
+        geometry = shape(geometry_dict)
+        if geometry.is_empty:
+            continue
+        label_geometries.setdefault(label, []).append(geometry)
+    return first_properties
+
+
+def geojson_product_from_maps(
+    spec: BundleSpec,
+    maps: dict[str, dict[str, list[Any]]],
+    first_properties: dict[str, Any],
+    source_id: str,
+    fallback_hash: str,
+) -> PtsProduct:
+    if not maps:
+        raise BotError(f"{spec.name}: SPC GeoJSON did not contain expected outlook layers")
+
+    issued, valid, valid_start = geojson_time_range(first_properties)
+    issue_id = str(first_properties.get("ISSUE") or "").strip()
+    product_id = f"geojson:{source_id}:{issue_id or valid_start or fallback_hash}"
+    return PtsProduct(
+        spec=spec,
+        product_id=product_id,
+        title=spec.name,
+        issued=issued or str(first_properties.get("ISSUE") or ""),
+        valid=valid,
+        updated=issued or utc_now_iso(),
+        source="geojson",
+        maps={key: {label: tuple(geometries) for label, geometries in labels.items()} for key, labels in maps.items()},
+    )
+
+
+def fetch_direct_geojson_product_for_spec(spec: BundleSpec) -> PtsProduct:
+    try:
+        import shapely  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        raise BotError("SPC GeoJSON rendering requires shapely; install requirements.txt or use Docker") from exc
+
+    maps: dict[str, dict[str, list[Any]]] = {}
+    first_properties: dict[str, Any] = {}
+    hash_source = hashlib.sha1()
+    fetched_any = False
+    for map_label in spec.expected_order:
+        url = direct_geojson_url(spec, map_label)
+        if not url:
+            continue
+        try:
+            text = fetch_text(url)
+        except Exception as exc:  # noqa: BLE001
+            raise BotError(f"{map_label} direct layer fetch failed: {exc}") from exc
+        fetched_any = True
+        hash_source.update(text.encode("utf-8"))
+        collection = json.loads(text)
+        first_properties = parse_geojson_feature_collection(collection, maps, map_label, first_properties)
+
+    if not fetched_any:
+        raise BotError(f"{spec.name}: no direct live GeoJSON layers are configured")
+    source_id = f"{spec.key}otlk_direct"
+    return geojson_product_from_maps(spec, maps, first_properties, source_id, hash_source.hexdigest()[:12])
 
 
 def iso_compact(value: str) -> str:
@@ -661,7 +751,7 @@ def choose_custom_product(spec: BundleSpec, pts_text: str | None, custom_source:
 
 def parse_geojson_zip(data: bytes, spec: BundleSpec, geojson_url: str) -> PtsProduct:
     try:
-        from shapely.geometry import shape
+        import shapely  # noqa: F401
     except Exception as exc:  # noqa: BLE001
         raise BotError("SPC GeoJSON rendering requires shapely; install requirements.txt or use Docker") from exc
 
@@ -674,36 +764,10 @@ def parse_geojson_zip(data: bytes, spec: BundleSpec, geojson_url: str) -> PtsPro
             if not member:
                 continue
             collection = json.loads(archive.read(member).decode("utf-8"))
-            label_geometries = maps.setdefault(map_label, {})
-            for feature in collection.get("features", []):
-                properties = feature.get("properties") or {}
-                if not first_properties:
-                    first_properties = dict(properties)
-                label = str(properties.get("LABEL") or "").strip()
-                geometry_dict = feature.get("geometry")
-                if not label or not geometry_dict:
-                    continue
-                geometry = shape(geometry_dict)
-                if geometry.is_empty:
-                    continue
-                label_geometries.setdefault(label, []).append(geometry)
+            first_properties = parse_geojson_feature_collection(collection, maps, map_label, first_properties)
 
-    if not maps:
-        raise BotError(f"{spec.name}: SPC GeoJSON ZIP did not contain expected outlook layers")
-
-    issued, valid, valid_start = geojson_time_range(first_properties)
     stem = Path(urllib.parse.urlsplit(geojson_url).path).name.removesuffix("-geojson.zip")
-    product_id = f"geojson:{stem}:{valid_start or hashlib.sha1(data).hexdigest()[:12]}"
-    return PtsProduct(
-        spec=spec,
-        product_id=product_id,
-        title=spec.name,
-        issued=issued or str(first_properties.get("ISSUE") or ""),
-        valid=valid,
-        updated=issued or utc_now_iso(),
-        source="geojson",
-        maps={key: {label: tuple(geometries) for label, geometries in labels.items()} for key, labels in maps.items()},
-    )
+    return geojson_product_from_maps(spec, maps, first_properties, stem, hashlib.sha1(data).hexdigest()[:12])
 
 
 def is_pts_label(token: str) -> bool:

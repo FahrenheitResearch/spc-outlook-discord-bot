@@ -124,6 +124,34 @@ SEVERE WEATHER OUTLOOK POINTS DAY 6
 """
 
 
+GEOJSON_LAYER = json.dumps(
+    {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "LABEL": "TSTM",
+                    "LABEL2": "General Thunderstorms Risk",
+                    "fill": "#C1E9C1",
+                    "stroke": "#55BB55",
+                    "ISSUE": "202606140447",
+                    "VALID": "202606151200",
+                    "EXPIRE": "202606161200",
+                    "ISSUE_ISO": "2026-06-14T04:47:00+00:00",
+                    "VALID_ISO": "2026-06-15T12:00:00+00:00",
+                    "EXPIRE_ISO": "2026-06-16T12:00:00+00:00",
+                },
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[-84.0, 30.0], [-83.0, 30.0], [-83.0, 31.0], [-84.0, 30.0]]],
+                },
+            }
+        ],
+    }
+)
+
+
 class ParserTests(unittest.TestCase):
     def test_day1_image_urls_follow_current_issue_time(self) -> None:
         spec = bot.BUNDLES[0]
@@ -218,6 +246,33 @@ class ParserTests(unittest.TestCase):
         self.assertIn("0.15", product.maps["day4-8"])
         self.assertIn("0.30", product.maps["day4-8"])
         self.assertIn("DAY48_OUTLOOK", bot.risk_labels_from_product(product))
+
+    def test_direct_live_geojson_fetch_uses_bowecho_style_layer_urls(self) -> None:
+        spec = bot.BUNDLES[1]
+        seen_urls: list[str] = []
+        original_fetch_text = bot.fetch_text
+        try:
+            def fake_fetch_text(url: str) -> str:
+                seen_urls.append(url)
+                return GEOJSON_LAYER
+
+            bot.fetch_text = fake_fetch_text
+            product = bot.fetch_direct_geojson_product_for_spec(spec)
+        finally:
+            bot.fetch_text = original_fetch_text
+
+        self.assertEqual(
+            seen_urls,
+            [
+                "https://www.spc.noaa.gov/products/outlook/day2otlk_cat.lyr.geojson",
+                "https://www.spc.noaa.gov/products/outlook/day2otlk_torn.lyr.geojson",
+                "https://www.spc.noaa.gov/products/outlook/day2otlk_wind.lyr.geojson",
+                "https://www.spc.noaa.gov/products/outlook/day2otlk_hail.lyr.geojson",
+            ],
+        )
+        self.assertEqual(product.product_id, "geojson:day2otlk_direct:202606140447")
+        self.assertEqual(product.updated, "2026-06-14 0447Z")
+        self.assertIn("TSTM", product.maps["categorical"])
 
     def test_geojson_first_uses_raw_pts_when_raw_is_newer(self) -> None:
         spec = bot.BUNDLES[1]
