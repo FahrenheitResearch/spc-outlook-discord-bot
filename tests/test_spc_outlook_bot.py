@@ -1,4 +1,6 @@
 import json
+import argparse
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -378,6 +380,27 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(
             bot.snapshot_passes_risk_filter(day48_snapshot, min_risk_level="enh", always_post_day48=True)[0]
         )
+
+    def test_preview_post_key_ignores_render_hash_changes(self) -> None:
+        runner = bot.OutlookBot.__new__(bot.OutlookBot)
+        runner.args = argparse.Namespace(min_risk_level="any", always_post_day48=False)
+        image_a = bot.MapImage("categorical", "a", "a.png", "image/png", "aaa", b"a")
+        image_b = bot.MapImage("categorical", "b", "b.png", "image/png", "bbb", b"b")
+        first = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1",
+            updated="2026-06-14 1254Z",
+            product_id="preview:geojson:day1:202606141254",
+            page_url=bot.BUNDLES[0].page_url,
+            images=(image_a,),
+        )
+        second = dataclasses.replace(first, images=(image_b,))
+        official_second = dataclasses.replace(second, product_id="official:day1:202606141254")
+        official_first = dataclasses.replace(first, product_id="official:day1:202606141254")
+
+        self.assertNotEqual(first.post_key, second.post_key)
+        self.assertEqual(runner.configured_post_key(first), runner.configured_post_key(second))
+        self.assertNotEqual(runner.configured_post_key(official_first), runner.configured_post_key(official_second))
 
 
 if __name__ == "__main__":

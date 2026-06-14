@@ -95,6 +95,11 @@ class BundleSnapshot:
         raw = f"{self.spec.key}|{self.product_id}|{self.updated}|{image_hashes}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+    @property
+    def product_post_key(self) -> str:
+        raw = f"{self.spec.key}|{self.product_id}|{self.updated}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 
 @dataclasses.dataclass(frozen=True)
 class PtsProduct:
@@ -2006,10 +2011,11 @@ class OutlookBot:
     def configured_post_key(self, snapshot: BundleSnapshot) -> str:
         min_level = normalize_min_risk(self.args.min_risk_level)
         filter_active = min_level != "any" or self.args.always_post_day48
+        base_key = snapshot.product_post_key if snapshot.product_id.startswith("preview:") else snapshot.post_key
         if not filter_active:
-            return snapshot.post_key
+            return base_key
         signature = f"risk:{min_level}|day48:{int(self.args.always_post_day48)}"
-        return hashlib.sha256(f"{snapshot.post_key}|{signature}".encode("utf-8")).hexdigest()
+        return hashlib.sha256(f"{base_key}|{signature}".encode("utf-8")).hexdigest()
 
     def start_nwws_if_requested(self) -> None:
         if not self.args.autostart_nwws:
