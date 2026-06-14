@@ -425,7 +425,7 @@ MAJOR_CITY_LABELS = (
     ("Cheyenne", -104.82, 41.14, 0.35, 0.22),
     ("Denver", -104.99, 39.74, 0.35, -0.28),
     ("Albuquerque", -106.65, 35.08, 0.35, 0.18),
-    ("Lubbock", -101.86, 33.58, 0.35, -0.24),
+    ("Amarillo", -101.83, 35.22, 0.35, 0.18),
     ("Dallas", -96.80, 32.78, 0.35, -0.25),
     ("Houston", -95.37, 29.76, 0.35, -0.28),
     ("Oklahoma City", -97.52, 35.47, 0.35, 0.18),
@@ -1002,6 +1002,52 @@ def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ..
                 )
 
 
+def draw_day48_day_labels(ax: Any, product: PtsProduct, transform: Any) -> None:
+    from shapely.geometry import Polygon as ShapelyPolygon
+    from shapely.ops import unary_union
+
+    for day_key in DAY48_ORDER:
+        geometries = []
+        for label in DAY48_PROB_ORDER:
+            for polygon_or_geometry in product.maps.get(day_key, {}).get(label, ()):
+                if hasattr(polygon_or_geometry, "geom_type"):
+                    geometry = polygon_or_geometry
+                else:
+                    geometry = ShapelyPolygon(polygon_or_geometry)
+                if not geometry.is_valid:
+                    geometry = geometry.buffer(0)
+                if not geometry.is_empty:
+                    geometries.append(geometry)
+        if not geometries:
+            continue
+
+        merged = unary_union(geometries) if len(geometries) > 1 else geometries[0]
+        for part in geometry_parts(merged):
+            if part.is_empty or part.area < 0.20:
+                continue
+            point = part.representative_point()
+            ax.text(
+                point.x,
+                point.y,
+                f"Day {day_key.removeprefix('day')}",
+                transform=transform,
+                ha="center",
+                va="center",
+                fontsize=11.5,
+                fontweight="bold",
+                fontfamily="DejaVu Sans",
+                color="#111111",
+                zorder=60,
+                bbox={
+                    "facecolor": "#fffdf0",
+                    "edgecolor": "#111111",
+                    "linewidth": 0.8,
+                    "boxstyle": "square,pad=0.18",
+                    "alpha": 0.88,
+                },
+            )
+
+
 def preview_source_footer(product: PtsProduct) -> str:
     return "UNOFFICIAL RENDER - Data source: NOAA/NWS SPC - not an official SPC/NWS graphic"
 
@@ -1089,6 +1135,8 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     if is_day48_probability_map(map_label):
         draw_day48_probability_labels(ax, map_polygons, transform)
     draw_major_city_labels(ax, transform)
+    if map_label == "day4-8":
+        draw_day48_day_labels(ax, product, transform)
 
     fig.patches.append(
         Rectangle(
