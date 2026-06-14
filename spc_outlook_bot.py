@@ -36,7 +36,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -50,6 +50,12 @@ DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
 )
+RAW_PTS_URLS = {
+    "day1": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus01.kwns.pts.dy1.txt",
+    "day2": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus02.kwns.pts.dy2.txt",
+    "day3": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus03.kwns.pts.dy3.txt",
+    "day4-8": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus48.kwns.pts.d48.txt",
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -477,6 +483,13 @@ def fetch_pts_text_for_spec(spec: BundleSpec) -> str:
     return fetch_text(pts_url)
 
 
+def fetch_raw_pts_text_for_spec(spec: BundleSpec) -> str:
+    raw_url = RAW_PTS_URLS.get(spec.key)
+    if not raw_url:
+        raise BotError(f"{spec.name}: no raw PTS feed URL is configured")
+    return fetch_text(raw_url)
+
+
 def find_geojson_url(html: str, spec: BundleSpec) -> str | None:
     match = re.search(r'href="([^"]*geojson\.zip)"', html, re.IGNORECASE)
     if not match:
@@ -556,6 +569,92 @@ def geojson_time_range(properties: dict[str, Any]) -> tuple[str, str, str]:
     else:
         valid_range = ""
     return format_geojson_time(issue) or issue, valid_range, compact_valid or str(properties.get("VALID") or "")
+
+
+def product_issue_datetime(product: PtsProduct) -> datetime | None:
+    value = product.updated or product.issued
+    if not value:
+        return None
+    for pattern in ("%Y-%m-%d %H%MZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            return datetime.strptime(value, pattern).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    match = re.search(
+        r"\b(\d{1,2})(\d{2})\s+(AM|PM)\s+(CST|CDT)\s+[A-Z]{3}\s+([A-Z]{3})\s+(\d{1,2})\s+(\d{4})\b",
+        value.upper(),
+    )
+    if not match:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    meridiem = match.group(3)
+    zone = match.group(4)
+    month = match.group(5).title()
+    day = int(match.group(6))
+    year = int(match.group(7))
+    if meridiem == "AM" and hour == 12:
+        hour = 0
+    elif meridiem == "PM" and hour != 12:
+        hour += 12
+    offset_hours = -5 if zone == "CDT" else -6
+    local_tz = timezone(timedelta(hours=offset_hours))
+    try:
+        parsed = datetime.strptime(f"{year} {month} {day} {hour:02d} {minute:02d}", "%Y %b %d %H %M")
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=local_tz).astimezone(timezone.utc)
+
+
+def pts_product_from_text_or_feed(spec: BundleSpec, pts_text: str | None = None) -> PtsProduct:
+    if pts_text is None:
+        try:
+            pts_text = fetch_raw_pts_text_for_spec(spec)
+        except Exception:
+            pts_text = fetch_pts_text_for_spec(spec)
+    return parse_pts_text(pts_text, spec)
+
+
+def choose_custom_product(spec: BundleSpec, pts_text: str | None, custom_source: str) -> PtsProduct:
+    if custom_source == "pts-only":
+        return pts_product_from_text_or_feed(spec, pts_text)
+    if custom_source == "geojson-only":
+        return fetch_geojson_product_for_spec(spec)
+
+    geojson_product: PtsProduct | None = None
+    pts_product: PtsProduct | None = None
+    geojson_error: Exception | None = None
+    pts_error: Exception | None = None
+
+    if spec_supports_geojson(spec):
+        try:
+            geojson_product = fetch_geojson_product_for_spec(spec)
+        except Exception as exc:  # noqa: BLE001
+            geojson_error = exc
+    try:
+        pts_product = pts_product_from_text_or_feed(spec, pts_text)
+    except Exception as exc:  # noqa: BLE001
+        pts_error = exc
+
+    if geojson_product and pts_product:
+        geojson_time = product_issue_datetime(geojson_product)
+        pts_time = product_issue_datetime(pts_product)
+        if geojson_time and pts_time and pts_time > geojson_time:
+            log(
+                f"{spec.name}: raw PTS is newer than SPC GeoJSON "
+                f"({pts_time.strftime('%Y-%m-%d %H%MZ')} > {geojson_time.strftime('%Y-%m-%d %H%MZ')})"
+            )
+            return pts_product
+        return geojson_product
+    if pts_product:
+        return pts_product
+    if geojson_product:
+        return geojson_product
+    if geojson_error:
+        raise BotError(f"{spec.name}: GeoJSON and raw PTS unavailable; GeoJSON error: {geojson_error}") from geojson_error
+    if pts_error:
+        raise BotError(f"{spec.name}: raw PTS unavailable: {pts_error}") from pts_error
+    raise BotError(f"{spec.name}: no custom geometry source is available")
 
 
 def parse_geojson_zip(data: bytes, spec: BundleSpec, geojson_url: str) -> PtsProduct:
@@ -1338,20 +1437,7 @@ def render_preview_bundle(
     *,
     custom_source: str = "geojson-first",
 ) -> BundleSnapshot:
-    product: PtsProduct | None = None
-    if custom_source in {"geojson-first", "geojson-only"}:
-        try:
-            product = fetch_geojson_product_for_spec(spec)
-        except Exception:
-            if custom_source == "geojson-only":
-                raise
-            product = None
-    if product is None:
-        if custom_source == "geojson-first" and spec_supports_geojson(spec):
-            raise BotError(f"{spec.name}: SPC GeoJSON is not available yet")
-        if pts_text is None:
-            pts_text = fetch_pts_text_for_spec(spec)
-        product = parse_pts_text(pts_text, spec)
+    product = choose_custom_product(spec, pts_text, custom_source)
     images: list[MapImage] = []
     for map_label in spec.expected_order:
         data = render_pts_map_png(product, map_label)
@@ -1888,8 +1974,9 @@ class OutlookBot:
             self.refresh_all("startup-prime-current", prime_only=True)
 
         next_poll = time.monotonic() + self.args.poll_seconds
+        fast_path = "NWWS SSE" if not self.args.disable_nwws_sse else "raw PTS/SPC HTTP polling"
         log(
-            "running; fast path=NWWS SSE, fallback=poll "
+            f"running; fast path={fast_path}, fallback=poll "
             f"every {self.args.poll_seconds}s"
         )
         try:

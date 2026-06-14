@@ -2,7 +2,7 @@
 
 Post fast severe-weather outlook map bundles to Discord as soon as new NOAA/NWS Storm Prediction Center geometry is available.
 
-By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast unofficial maps from official NOAA/NWS Storm Prediction Center GeoJSON polygons for Day 1-3, uses PTS geometry for Day 4-8, posts four bundled Discord messages, and does not use NOAA/NWS/SPC logos or emblems. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
+By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast unofficial maps from official NOAA/NWS Storm Prediction Center GeoJSON polygons when those files are current, switches to raw PTS geometry when raw PTS is newer than SPC GeoJSON, posts four bundled Discord messages, and does not use NOAA/NWS/SPC logos or emblems. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
 
 Proof bundle: [docs/proof](docs/proof/index.html)
 
@@ -32,7 +32,7 @@ Each full current-set run becomes four image-only Discord messages:
 
 | Source | Behavior |
 | --- | --- |
-| `geojson-first` | Default. Uses official SPC GeoJSON polygons for Day 1-3 and falls back to PTS only for products without GeoJSON, such as Day 4-8. |
+| `geojson-first` | Default. Uses official SPC GeoJSON when it is current, but switches to raw PTS when raw PTS has a newer issue time. |
 | `geojson-only` | Requires SPC GeoJSON. Useful for quality testing Day 1-3, but Day 4-8 is not available in this source. |
 | `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
 
@@ -53,12 +53,12 @@ Fastest path:
 
 1. `nwws-rs` receives a `KWNS` outlook product such as `PTSDY1`.
 2. The bot refreshes the matching SPC geometry product immediately.
-3. For Day 1-3, default custom rendering waits for the official SPC GeoJSON ZIP because it contains complete polygons. For Day 4-8, the bot uses PTS geometry.
+3. For Day 1-3, default custom rendering uses official SPC GeoJSON when it is current, because it contains complete polygons. If raw PTS is newer, the bot renders from raw PTS so it does not wait on delayed web/GeoJSON publication. For Day 4-8, the bot uses PTS geometry.
 4. The bot renders the map bundle locally and posts it to Discord.
 
 That path does not wait for SPC's finished web PNG/GIF plot images. On the local proof run, all 16 current maps rendered in about 6-8 seconds total once the geometry files were reachable. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
 
-Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap, but it avoids the visible cutoff artifacts that raw PTS-only rendering can create.
+Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap, so `geojson-first` compares raw PTS and GeoJSON issue times and uses raw PTS if it is newer.
 
 Fallback path:
 
@@ -141,7 +141,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS
 http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 ```
 
-`PTS` is the fastest trigger because it announces the outlook geometry product. In the default `geojson-first` source, Day 1-3 posting waits for the matching SPC GeoJSON ZIP so the filled polygons are complete. `SWO` discussion products can still trigger a refresh.
+`PTS` is the fastest trigger because it announces the outlook geometry product. In the default `geojson-first` source, Day 1-3 posting uses matching SPC GeoJSON when it is current, but raw PTS wins if it has a newer issue time. `SWO` discussion products can still trigger a refresh.
 
 ## Configuration
 

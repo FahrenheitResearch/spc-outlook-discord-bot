@@ -200,6 +200,41 @@ class ParserTests(unittest.TestCase):
         self.assertIn("0.30", product.maps["day4-8"])
         self.assertIn("DAY48_OUTLOOK", bot.risk_labels_from_product(product))
 
+    def test_geojson_first_uses_raw_pts_when_raw_is_newer(self) -> None:
+        spec = bot.BUNDLES[1]
+        geojson_product = bot.PtsProduct(
+            spec=spec,
+            product_id="geojson:day2otlk_20260613_1730:20260614120000Z",
+            title=spec.name,
+            issued="2026-06-13 1737Z",
+            valid="2026-06-14 1200Z - 2026-06-15 1200Z",
+            updated="2026-06-13 1737Z",
+            source="geojson",
+            maps={},
+        )
+        pts_product = bot.PtsProduct(
+            spec=spec,
+            product_id="PTSDY2:151200Z",
+            title=spec.name,
+            issued="1147 PM CDT SAT JUN 13 2026",
+            valid="151200Z - 161200Z",
+            updated="1147 PM CDT SAT JUN 13 2026",
+            source="pts",
+            maps={},
+        )
+        original_geojson = bot.fetch_geojson_product_for_spec
+        original_pts = bot.pts_product_from_text_or_feed
+        try:
+            bot.fetch_geojson_product_for_spec = lambda _spec: geojson_product
+            bot.pts_product_from_text_or_feed = lambda _spec, _pts_text=None: pts_product
+
+            chosen = bot.choose_custom_product(spec, None, "geojson-first")
+        finally:
+            bot.fetch_geojson_product_for_spec = original_geojson
+            bot.pts_product_from_text_or_feed = original_pts
+
+        self.assertIs(chosen, pts_product)
+
     def test_risk_filter_supports_enh_plus_and_day48_override(self) -> None:
         product = bot.parse_pts_text(PTS_DAY1_TEXT, bot.BUNDLES[0])
         day1_snapshot = bot.BundleSnapshot(
