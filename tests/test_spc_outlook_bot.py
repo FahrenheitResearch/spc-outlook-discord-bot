@@ -202,9 +202,12 @@ class ParserTests(unittest.TestCase):
         ]
 
         repaired = bot.close_open_pts_contour(points)
+        closure = bot.boundary_path(points[-1], points[0], bot.MAP_EXTENT, clockwise=True)
 
         self.assertIsNotNone(repaired)
+        self.assertIn((-66.0, 24.0), closure)
         self.assertTrue(repaired.contains(Point((-100.0, 30.5))))
+        self.assertTrue(repaired.contains(Point((-82.46, 27.95))))
         self.assertFalse(repaired.contains(Point((-100.0, 45.0))))
 
     def test_day48_pts_preserves_probability_labels(self) -> None:

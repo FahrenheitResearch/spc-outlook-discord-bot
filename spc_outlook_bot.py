@@ -823,7 +823,15 @@ def boundary_path(
     start_t = boundary_parameter(start, extent)
     end_t = boundary_parameter(end, extent)
     if clockwise:
-        start_t, end_t = perimeter - start_t, perimeter - end_t
+        if end_t > start_t:
+            start_t += perimeter
+        steps = [start_t]
+        for corner_t in (width, width + height, width + height + width, perimeter):
+            for wrapped in (corner_t, corner_t + perimeter):
+                if end_t < wrapped < start_t:
+                    steps.append(wrapped)
+        steps.append(end_t)
+        return [boundary_point(step, extent) for step in sorted(set(steps), reverse=True)]
     if end_t < start_t:
         end_t += perimeter
     steps = [start_t]
@@ -832,8 +840,7 @@ def boundary_path(
             if start_t < wrapped < end_t:
                 steps.append(wrapped)
     steps.append(end_t)
-    points = [boundary_point(perimeter - step if clockwise else step, extent) for step in sorted(set(steps))]
-    return points
+    return [boundary_point(step, extent) for step in sorted(set(steps))]
 
 
 def right_side_sample(points: list[tuple[float, float]]) -> tuple[float, float] | None:
