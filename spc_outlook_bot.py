@@ -582,7 +582,7 @@ def geojson_product_from_maps(
     spec: BundleSpec,
     maps: dict[str, dict[str, list[Any]]],
     first_properties: dict[str, Any],
-    source_id: str,
+    _source_id: str,
     fallback_hash: str,
 ) -> PtsProduct:
     if not maps:
@@ -590,7 +590,7 @@ def geojson_product_from_maps(
 
     issued, valid, valid_start = geojson_time_range(first_properties)
     issue_id = str(first_properties.get("ISSUE") or "").strip()
-    product_id = f"geojson:{source_id}:{issue_id or valid_start or fallback_hash}"
+    product_id = f"geojson:{spec.key}:{issue_id or valid_start or fallback_hash}"
     return PtsProduct(
         spec=spec,
         product_id=product_id,

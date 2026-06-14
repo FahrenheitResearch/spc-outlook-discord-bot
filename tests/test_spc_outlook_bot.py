@@ -270,9 +270,25 @@ class ParserTests(unittest.TestCase):
                 "https://www.spc.noaa.gov/products/outlook/day2otlk_hail.lyr.geojson",
             ],
         )
-        self.assertEqual(product.product_id, "geojson:day2otlk_direct:202606140447")
+        self.assertEqual(product.product_id, "geojson:day2:202606140447")
         self.assertEqual(product.updated, "2026-06-14 0447Z")
         self.assertIn("TSTM", product.maps["categorical"])
+
+    def test_geojson_product_id_is_stable_between_direct_and_zip_sources(self) -> None:
+        spec = bot.BUNDLES[0]
+        maps = {"categorical": {"MRGL": ["geom"]}}
+        properties = {
+            "ISSUE": "202606141254",
+            "ISSUE_ISO": "2026-06-14T12:54:00Z",
+            "VALID_ISO": "2026-06-14T13:00:00Z",
+            "EXPIRE_ISO": "2026-06-15T12:00:00Z",
+        }
+
+        direct_product = bot.geojson_product_from_maps(spec, maps, properties, "day1otlk_direct", "directhash")
+        zip_product = bot.geojson_product_from_maps(spec, maps, properties, "day1otlk_20260614_1300", "ziphash")
+
+        self.assertEqual(direct_product.product_id, "geojson:day1:202606141254")
+        self.assertEqual(zip_product.product_id, direct_product.product_id)
 
     def test_geojson_first_uses_raw_pts_when_raw_is_newer(self) -> None:
         spec = bot.BUNDLES[1]
