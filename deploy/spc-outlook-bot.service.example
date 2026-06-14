@@ -1,0 +1,22 @@
+[Unit]
+Description=Unofficial Severe Outlook Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=spcbot
+Group=spcbot
+WorkingDirectory=/opt/spc-outlook-discord-bot
+EnvironmentFile=/etc/spc-outlook-bot.env
+ExecStart=/opt/spc-outlook-discord-bot/.venv/bin/python /opt/spc-outlook-discord-bot/spc_outlook_bot.py --state-file data/state.json --dry-run-dir data/dry-run
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/spc-outlook-discord-bot/data
+
+[Install]
+WantedBy=multi-user.target

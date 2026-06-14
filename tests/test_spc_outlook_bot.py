@@ -240,6 +240,35 @@ class ParserTests(unittest.TestCase):
         self.assertTrue(repaired.contains(Point((-82.46, 27.95))))
         self.assertFalse(repaired.contains(Point((-100.0, 45.0))))
 
+    def test_current_style_tstm_open_contour_does_not_flood_northern_conus(self) -> None:
+        points = [
+            (-113.26, 31.79), (-113.74, 32.70), (-114.11, 33.45), (-114.66, 35.26),
+            (-114.91, 35.97), (-115.33, 36.39), (-115.59, 36.58), (-115.91, 36.64),
+            (-116.52, 36.53), (-117.04, 36.38), (-117.51, 36.27), (-117.90, 36.18),
+            (-118.36, 36.21), (-118.95, 36.41), (-119.97, 37.21), (-120.75, 38.09),
+            (-121.00, 38.47), (-120.84, 39.24), (-120.64, 39.59), (-120.45, 39.62),
+            (-119.82, 39.57), (-119.33, 39.31), (-118.76, 39.30), (-118.04, 39.36),
+            (-117.39, 39.64), (-116.61, 40.01), (-116.07, 40.22), (-115.14, 40.46),
+            (-114.52, 40.49), (-113.81, 40.49), (-113.23, 40.33), (-112.23, 40.28),
+            (-111.07, 40.42), (-110.45, 40.54), (-109.34, 40.58), (-108.39, 40.53),
+            (-106.94, 40.56), (-104.93, 40.71), (-103.89, 40.67), (-102.66, 40.34),
+            (-102.12, 39.92), (-101.71, 39.28), (-101.67, 38.86), (-101.75, 38.57),
+            (-102.01, 36.69), (-101.98, 36.44), (-101.95, 36.14), (-101.75, 35.93),
+            (-100.85, 35.35), (-99.68, 35.04), (-98.00, 35.03), (-94.93, 34.84),
+            (-92.73, 34.69), (-91.89, 34.77), (-91.15, 35.32), (-90.14, 36.42),
+            (-87.97, 39.72), (-85.98, 41.76), (-83.92, 43.29), (-81.35, 44.22),
+        ]
+
+        repaired = bot.repaired_open_pts_geometry(points)
+
+        self.assertIsNotNone(repaired)
+        self.assertTrue(repaired.contains(Point((-104.99, 39.74))))  # Denver
+        self.assertTrue(repaired.contains(Point((-96.80, 32.78))))  # Dallas
+        self.assertTrue(repaired.contains(Point((-119.81, 39.53))))  # Reno
+        self.assertFalse(repaired.contains(Point((-100.78, 46.81))))  # Bismarck
+        self.assertFalse(repaired.contains(Point((-122.33, 47.61))))  # Seattle
+        self.assertFalse(repaired.contains(Point((-87.63, 41.88))))  # Chicago
+
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
 
@@ -254,7 +283,7 @@ class ParserTests(unittest.TestCase):
         seen_urls: list[str] = []
         original_fetch_text = bot.fetch_text
         try:
-            def fake_fetch_text(url: str) -> str:
+            def fake_fetch_text(url: str, timeout: int = 20) -> str:
                 seen_urls.append(url)
                 return GEOJSON_LAYER
 
@@ -401,6 +430,56 @@ class ParserTests(unittest.TestCase):
         self.assertNotEqual(first.post_key, second.post_key)
         self.assertEqual(runner.configured_post_key(first), runner.configured_post_key(second))
         self.assertNotEqual(runner.configured_post_key(official_first), runner.configured_post_key(official_second))
+
+    def test_state_keeps_recent_post_keys_for_cdn_flip_flops(self) -> None:
+        snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1",
+            updated="2026-06-14 1254Z",
+            product_id="preview:geojson:day1:202606141254",
+            page_url=bot.BUNDLES[0].page_url,
+            images=(),
+        )
+        state: dict[str, object] = {"posted": {}}
+
+        bot.mark_posted(state, snapshot, mode="posted", reason="first", state_key="day1:preview", post_key="old-key")
+        bot.mark_posted(state, snapshot, mode="posted", reason="second", state_key="day1:preview", post_key="new-key")
+
+        self.assertTrue(bot.bundle_is_posted(state, snapshot, state_key="day1:preview", post_key="old-key"))
+        self.assertTrue(bot.bundle_is_posted(state, snapshot, state_key="day1:preview", post_key="new-key"))
+        self.assertFalse(bot.bundle_is_posted(state, snapshot, state_key="day1:preview", post_key="other-key"))
+
+    def test_fetch_json_retries_incomplete_spc_response(self) -> None:
+        responses = iter(["{\"type\": \"Feature", "{\"type\": \"FeatureCollection\", \"features\": []}"])
+        original_fetch_text = bot.fetch_text
+        original_sleep = bot.time.sleep
+        try:
+            bot.fetch_text = lambda _url, timeout=20: next(responses)
+            bot.time.sleep = lambda _seconds: None
+
+            text, parsed = bot.fetch_json_with_retries("https://example.test/layer.geojson", attempts=2)
+        finally:
+            bot.fetch_text = original_fetch_text
+            bot.time.sleep = original_sleep
+
+        self.assertIn("FeatureCollection", text)
+        self.assertEqual(parsed["type"], "FeatureCollection")
+
+    def test_link_content_adds_official_product_url(self) -> None:
+        snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1",
+            updated="2026-06-14 1631Z",
+            product_id="preview:PTSDY1:141630Z",
+            page_url="https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+            images=(),
+        )
+
+        payload = bot.discord_payload(snapshot, content_mode="link", include_username=False)
+
+        self.assertIn("Updated: 2026-06-14 1631Z", payload["content"])
+        self.assertIn("Official SPC discussion/product:", payload["content"])
+        self.assertIn("<https://www.spc.noaa.gov/products/outlook/day1otlk.html>", payload["content"])
 
 
 if __name__ == "__main__":

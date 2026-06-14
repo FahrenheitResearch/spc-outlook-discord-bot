@@ -2,7 +2,7 @@
 
 Post fast severe-weather outlook map bundles to Discord as soon as new NOAA/NWS Storm Prediction Center geometry is available.
 
-By default, this bot runs in `custom-only` mode with `geojson-first` geometry: it renders fast unofficial maps from official NOAA/NWS Storm Prediction Center GeoJSON polygons when those files are current, switches to raw PTS geometry when raw PTS is newer than SPC GeoJSON, posts four bundled Discord messages, and does not use NOAA/NWS/SPC logos or emblems. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you want fast previews first and official graphics later, use `custom-first`.
+By default, this bot runs in `custom-only` mode with `geojson-only` geometry: it renders fast unofficial maps from official NOAA/NWS Storm Prediction Center GeoJSON polygons for Day 1-3, uses PTS geometry for Day 4-8 because SPC does not publish the same live GeoJSON source there, posts four bundled Discord messages, and does not use NOAA/NWS/SPC logos or emblems. If you want the exact finished SPC web graphics instead, switch to `official-only`. If you explicitly want the earliest raw-text geometry path for Day 1-3, switch to `geojson-first` or `pts-only`.
 
 Proof bundle: [docs/proof](docs/proof/index.html)
 
@@ -32,8 +32,8 @@ Each full current-set run becomes four image-only Discord messages:
 
 | Source | Behavior |
 | --- | --- |
-| `geojson-first` | Default. Uses official SPC GeoJSON when it is current, but switches to raw PTS when raw PTS has a newer issue time. |
-| `geojson-only` | Uses official SPC GeoJSON for Day 1-3. Day 4-8 falls back to PTS because SPC does not publish the same live GeoJSON source for it. |
+| `geojson-only` | Default production mode. Uses official SPC GeoJSON for Day 1-3. Day 4-8 falls back to PTS because SPC does not publish the same live GeoJSON source for it. |
+| `geojson-first` | Faster experimental mode. Uses official SPC GeoJSON when it is current, but switches Day 1-3 to raw PTS when raw PTS has a newer issue time. This can beat GeoJSON publication, but raw text can contain open contours. |
 | `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
 
 ## Optional Risk Filtering
@@ -53,18 +53,18 @@ Fastest path:
 
 1. `nwws-rs` receives a `KWNS` outlook product such as `PTSDY1`.
 2. The bot refreshes the matching SPC geometry product immediately.
-3. For Day 1-3, default custom rendering uses official SPC GeoJSON when it is current, because it contains complete polygons. If raw PTS is newer, the bot renders from raw PTS so it does not wait on delayed web/GeoJSON publication. For Day 4-8, the bot uses PTS geometry.
+3. For Day 1-3, default custom rendering waits for complete official SPC GeoJSON because it contains closed polygons. For Day 4-8, the bot uses PTS geometry.
 4. The bot renders the map bundle locally and posts it to Discord.
 
 That path does not wait for SPC's finished web PNG/GIF plot images. On the local proof run, all 16 current maps rendered in about 6-8 seconds total once the geometry files were reachable. A single triggered Day 1 or Day 2 bundle is smaller than that full proof run.
 
-Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap, so `geojson-first` compares raw PTS and GeoJSON issue times and uses raw PTS if it is newer.
+Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap; `geojson-first` can reduce that gap by using newer raw PTS, but `geojson-only` is the safer public-server default.
 
 Fallback path:
 
 - If NWWS is unavailable, the bot polls the SPC outlook pages directly.
 - Default polling cadence is 20 seconds.
-- Dedupe uses product id, issue/update time, and image hashes so restarts do not spam old outlooks.
+- Dedupe uses product id and issue/update time for custom preview maps so direct-vs-ZIP fetch paths and tiny PNG differences do not duplicate the same SPC outlook. Official-image mode also includes image hashes.
 
 ## Quick Start: Bare Python
 
@@ -86,7 +86,7 @@ Set:
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 DISCORD_USERNAME=Fast Severe Outlook Bot
 SPC_RENDER_MODE=custom-only
-SPC_CUSTOM_SOURCE=geojson-first
+SPC_CUSTOM_SOURCE=geojson-only
 ```
 
 Do a local proof run without posting:
@@ -122,6 +122,29 @@ docker compose up -d
 
 The container uses polling unless `NWWS_SSE_URLS` points at an `nwws-rs` service reachable from inside the container.
 
+## Production Linux Service
+
+A hardened systemd unit template is in `deploy/spc-outlook-bot.service.example`. The expected layout is:
+
+```text
+/opt/spc-outlook-discord-bot
+/etc/spc-outlook-bot.env
+```
+
+Recommended public-server settings:
+
+```text
+DISCORD_USERNAME=Yalllooks
+SPC_RENDER_MODE=custom-only
+SPC_CUSTOM_SOURCE=geojson-only
+SPC_MIN_RISK_LEVEL=any
+SPC_ALWAYS_POST_DAY48=1
+SPC_PRIME_CURRENT_ON_START=1
+SPC_POST_CURRENT_ON_START=0
+```
+
+Use `geojson-first` only if you explicitly want the earliest raw-text Day 1-3 map path and accept the open-contour risk. Keep the webhook URL in `/etc/spc-outlook-bot.env`, not in git.
+
 ## Fastest Mode With NWWS
 
 Install `nwws-rs` and set your NWWS-OI credentials:
@@ -156,7 +179,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | `SPC_IMAGE_SAFE_SCALE` | `0.95` | Shrinks custom maps inside the PNG canvas so Discord attachment previews crop less. Use `1.0` to disable. |
 | `SPC_MIN_RISK_LEVEL` | `any` | Optional Day 1-3 custom bundle filter. Use `enh` for Enhanced-or-higher posts only. |
 | `SPC_ALWAYS_POST_DAY48` | `0` | With risk filtering enabled, still post any Day 4-8 outlook with a 15% or 30% area. |
-| `SPC_MESSAGE_CONTENT` | `none` | `none`, `short`, or `debug`. `none` posts image-only messages. |
+| `SPC_MESSAGE_CONTENT` | `none` | `none`, `link`, `short`, or `debug`. `link` adds the official SPC product/discussion page above the images. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
 | `SPC_FETCH_ATTEMPTS` | `4` | Normal fetch retry count. |
 | `SPC_TRIGGER_FETCH_ATTEMPTS` | `12` | Retry count after an NWWS trigger, mainly for official-image modes. |

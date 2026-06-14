@@ -145,6 +145,10 @@ BUNDLES: tuple[BundleSpec, ...] = (
 )
 
 
+STATE_RECENT_POST_LIMIT = 16
+TRANSIENT_HTTP_CODES = {404, 408, 409, 425, 429, 500, 502, 503, 504}
+
+
 class BotError(RuntimeError):
     pass
 
@@ -220,6 +224,104 @@ def fetch_text(url: str, timeout: int = 20) -> str:
         raw = response.read()
         charset = response.headers.get_content_charset() or "windows-1252"
     return raw.decode(charset, errors="replace")
+
+
+def retry_after_seconds(exc: urllib.error.HTTPError, default: float) -> float:
+    value = exc.headers.get("Retry-After") if exc.headers else None
+    if value:
+        with contextlib.suppress(ValueError):
+            return max(default, float(value))
+    return default
+
+
+def fetch_text_with_retries(
+    url: str,
+    *,
+    attempts: int = 3,
+    delay: float = 1.5,
+    timeout: int = 20,
+    context: str = "text fetch",
+) -> str:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return fetch_text(url, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            should_retry = exc.code in TRANSIENT_HTTP_CODES and attempt < attempts
+            if not should_retry:
+                raise
+            sleep_for = retry_after_seconds(exc, delay)
+        except (TimeoutError, urllib.error.URLError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise
+            sleep_for = delay
+        log(f"{context}: attempt {attempt}/{attempts} failed: {last_error}; retrying")
+        time.sleep(sleep_for)
+    raise BotError(f"{context}: failed after {attempts} attempts: {last_error}") from last_error
+
+
+def fetch_json_with_retries(
+    url: str,
+    *,
+    attempts: int = 3,
+    delay: float = 1.5,
+    timeout: int = 20,
+    context: str = "JSON fetch",
+) -> tuple[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            text = fetch_text_with_retries(
+                url,
+                attempts=1,
+                delay=delay,
+                timeout=timeout,
+                context=context,
+            )
+            return text, json.loads(text)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt >= attempts:
+                break
+        except (urllib.error.HTTPError, TimeoutError, urllib.error.URLError) as exc:
+            last_error = exc
+            if isinstance(exc, urllib.error.HTTPError) and exc.code not in TRANSIENT_HTTP_CODES:
+                raise
+            if attempt >= attempts:
+                break
+        log(f"{context}: attempt {attempt}/{attempts} returned incomplete data: {last_error}; retrying")
+        time.sleep(delay)
+    raise BotError(f"{context}: failed after {attempts} attempts: {last_error}") from last_error
+
+
+def fetch_bytes_with_retries(
+    url: str,
+    *,
+    attempts: int = 3,
+    delay: float = 1.5,
+    timeout: int = 30,
+    context: str = "binary fetch",
+) -> bytes:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with request(url, timeout=timeout, cache_bust=True) as response:
+                return response.read()
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code not in TRANSIENT_HTTP_CODES or attempt >= attempts:
+                raise
+            sleep_for = retry_after_seconds(exc, delay)
+        except (TimeoutError, urllib.error.URLError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise
+            sleep_for = delay
+        log(f"{context}: attempt {attempt}/{attempts} failed: {last_error}; retrying")
+        time.sleep(sleep_for)
+    raise BotError(f"{context}: failed after {attempts} attempts: {last_error}") from last_error
 
 
 def normalize_spaces(value: str) -> str:
@@ -513,8 +615,13 @@ def fetch_geojson_product_for_spec(spec: BundleSpec) -> PtsProduct:
     geojson_url = find_geojson_url(html, spec)
     if not geojson_url:
         raise BotError(f"{spec.name}: could not find SPC GeoJSON ZIP link")
-    with request(geojson_url, timeout=30, cache_bust=True) as response:
-        data = response.read()
+    data = fetch_bytes_with_retries(
+        geojson_url,
+        attempts=3,
+        delay=2,
+        timeout=30,
+        context=f"{spec.name} GeoJSON ZIP",
+    )
     return parse_geojson_zip(data, spec, geojson_url)
 
 
@@ -623,12 +730,17 @@ def fetch_direct_geojson_product_for_spec(spec: BundleSpec) -> PtsProduct:
         if not url:
             continue
         try:
-            text = fetch_text(url)
+            text, collection = fetch_json_with_retries(
+                url,
+                attempts=3,
+                delay=1.5,
+                timeout=20,
+                context=f"{spec.name} {map_label} direct GeoJSON",
+            )
         except Exception as exc:  # noqa: BLE001
             raise BotError(f"{map_label} direct layer fetch failed: {exc}") from exc
         fetched_any = True
         hash_source.update(text.encode("utf-8"))
-        collection = json.loads(text)
         first_properties = parse_geojson_feature_collection(collection, maps, map_label, first_properties)
 
     if not fetched_any:
@@ -983,6 +1095,13 @@ def clip_open_pts_fill_to_conus(geometry: Any) -> Any:
         log(f"open PTS CONUS clipping failed, using unmasked fill: {exc}")
         return geometry
     return clipped if not clipped.is_empty else geometry
+
+
+def repaired_open_pts_geometry(points: list[tuple[float, float]]) -> Any | None:
+    repaired = close_open_pts_contour(points)
+    if repaired is None:
+        return None
+    return clip_open_pts_fill_to_conus(repaired)
 
 
 def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
@@ -1436,17 +1555,16 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             if product.source == "pts" and is_open_coordinate_sequence(polygon_or_geometry):
                 _legend, face, edge = preview_style_for_label(map_label, label)
                 points = list(polygon_or_geometry)
-                repaired = close_open_pts_contour(points)
+                repaired = repaired_open_pts_geometry(points)
                 if repaired is not None:
-                    repaired = clip_open_pts_fill_to_conus(repaired)
                     repaired_parts = [part for part in geometry_parts(repaired) if not part.is_empty and part.area > 0.01]
                     if repaired_parts:
                         ax.add_geometries(
                             repaired_parts,
                             crs=transform,
                             facecolor=face,
-                            edgecolor="none",
-                            linewidth=0,
+                            edgecolor=edge,
+                            linewidth=2.2,
                             alpha=0.46,
                             zorder=9 + order.index(label) if label in order else 9,
                         )
@@ -1748,7 +1866,10 @@ def bundle_is_posted(
 ) -> bool:
     posted = state.setdefault("posted", {})
     key = state_key or snapshot.spec.key
-    return posted.get(key, {}).get("post_key") == (post_key or snapshot.post_key)
+    target = post_key or snapshot.post_key
+    entry = posted.get(key, {})
+    recent = entry.get("recent_post_keys") or []
+    return entry.get("post_key") == target or target in recent
 
 
 def mark_posted(
@@ -1762,8 +1883,22 @@ def mark_posted(
 ) -> None:
     posted = state.setdefault("posted", {})
     key = state_key or snapshot.spec.key
+    target = post_key or snapshot.post_key
+    previous = posted.get(key, {})
+    recent_candidates = [
+        target,
+        previous.get("post_key"),
+        *(previous.get("recent_post_keys") or []),
+    ]
+    recent_post_keys: list[str] = []
+    for candidate in recent_candidates:
+        if isinstance(candidate, str) and candidate and candidate not in recent_post_keys:
+            recent_post_keys.append(candidate)
+        if len(recent_post_keys) >= STATE_RECENT_POST_LIMIT:
+            break
     posted[key] = {
-        "post_key": post_key or snapshot.post_key,
+        "post_key": target,
+        "recent_post_keys": recent_post_keys,
         "product_id": snapshot.product_id,
         "updated": snapshot.updated,
         "title": snapshot.title,
@@ -1896,7 +2031,13 @@ def discord_payload(snapshot: BundleSnapshot, *, content_mode: str, include_user
     payload: dict[str, Any] = {"allowed_mentions": {"parse": []}}
     if include_username:
         payload["username"] = os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot")
-    if content_mode == "short":
+    if content_mode == "link":
+        payload["content"] = (
+            f"{snapshot.spec.name}\n"
+            f"Updated: {snapshot.updated or snapshot.product_id}\n"
+            f"Official SPC discussion/product: <{snapshot.page_url}>"
+        )
+    elif content_mode == "short":
         payload["content"] = f"{snapshot.spec.name} - {snapshot.updated or snapshot.product_id}"
     elif content_mode == "debug":
         labels = ", ".join(image.label for image in snapshot.images)
@@ -2279,9 +2420,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--message-content",
-        choices=("none", "short", "debug"),
+        choices=("none", "link", "short", "debug"),
         default=os.getenv("SPC_MESSAGE_CONTENT", "none"),
-        help="Discord message text. 'none' posts image-only messages.",
+        help="Discord message text. 'none' posts image-only messages; 'link' adds the official SPC page URL.",
     )
     parser.add_argument(
         "--render-mode",
@@ -2295,7 +2436,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--custom-source",
         choices=("geojson-first", "geojson-only", "pts-only"),
-        default=os.getenv("SPC_CUSTOM_SOURCE", "geojson-first"),
+        default=os.getenv("SPC_CUSTOM_SOURCE", "geojson-only"),
         help="geometry source for custom maps: official SPC GeoJSON first, GeoJSON only, or raw PTS only",
     )
     parser.add_argument(
