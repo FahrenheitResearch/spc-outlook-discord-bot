@@ -46,6 +46,7 @@ USER_AGENT = "spc-outlook-bot/1.0 (+https://www.spc.noaa.gov/)"
 WATER_COLOR = "#6f9fca"
 LAND_COLOR = "#f8f3df"
 DEFAULT_IMAGE_SAFE_SCALE = 0.95
+MAP_EXTENT = (-125.0, -66.0, 24.0, 50.5)
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO"
@@ -765,6 +766,118 @@ def collect_pts_polygons(
     return {label: tuple(polygons) for label, polygons in collected.items()}
 
 
+def is_open_coordinate_sequence(value: Any) -> bool:
+    if hasattr(value, "geom_type"):
+        return False
+    if not isinstance(value, tuple | list) or len(value) < 3:
+        return False
+    first = value[0]
+    last = value[-1]
+    return isinstance(first, tuple | list) and isinstance(last, tuple | list) and first != last
+
+
+def boundary_parameter(point: tuple[float, float], extent: tuple[float, float, float, float]) -> float:
+    min_lon, max_lon, min_lat, max_lat = extent
+    lon, lat = point
+    width = max_lon - min_lon
+    height = max_lat - min_lat
+    candidates = [
+        (abs(lat - min_lat), lon - min_lon),
+        (abs(lon - max_lon), width + lat - min_lat),
+        (abs(lat - max_lat), width + height + max_lon - lon),
+        (abs(lon - min_lon), width + height + width + max_lat - lat),
+    ]
+    return min(candidates, key=lambda item: item[0])[1]
+
+
+def boundary_point(t: float, extent: tuple[float, float, float, float]) -> tuple[float, float]:
+    min_lon, max_lon, min_lat, max_lat = extent
+    width = max_lon - min_lon
+    height = max_lat - min_lat
+    perimeter = 2 * (width + height)
+    t %= perimeter
+    if t <= width:
+        return min_lon + t, min_lat
+    t -= width
+    if t <= height:
+        return max_lon, min_lat + t
+    t -= height
+    if t <= width:
+        return max_lon - t, max_lat
+    t -= width
+    return min_lon, max_lat - t
+
+
+def boundary_path(
+    start: tuple[float, float],
+    end: tuple[float, float],
+    extent: tuple[float, float, float, float],
+    *,
+    clockwise: bool,
+) -> list[tuple[float, float]]:
+    min_lon, max_lon, min_lat, max_lat = extent
+    width = max_lon - min_lon
+    height = max_lat - min_lat
+    perimeter = 2 * (width + height)
+    start_t = boundary_parameter(start, extent)
+    end_t = boundary_parameter(end, extent)
+    if clockwise:
+        start_t, end_t = perimeter - start_t, perimeter - end_t
+    if end_t < start_t:
+        end_t += perimeter
+    steps = [start_t]
+    for corner_t in (width, width + height, width + height + width, perimeter):
+        for wrapped in (corner_t, corner_t + perimeter):
+            if start_t < wrapped < end_t:
+                steps.append(wrapped)
+    steps.append(end_t)
+    points = [boundary_point(perimeter - step if clockwise else step, extent) for step in sorted(set(steps))]
+    return points
+
+
+def right_side_sample(points: list[tuple[float, float]]) -> tuple[float, float] | None:
+    longest: tuple[tuple[float, float], tuple[float, float]] | None = None
+    longest_distance = 0.0
+    for start, end in zip(points, points[1:]):
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        distance = dx * dx + dy * dy
+        if distance > longest_distance:
+            longest = (start, end)
+            longest_distance = distance
+    if not longest or longest_distance <= 0:
+        return None
+    start, end = longest
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = (dx * dx + dy * dy) ** 0.5
+    return ((start[0] + end[0]) / 2 + (dy / length) * 0.35, (start[1] + end[1]) / 2 - (dx / length) * 0.35)
+
+
+def close_open_pts_contour(points: list[tuple[float, float]]) -> Any | None:
+    from shapely.geometry import Point, Polygon
+
+    if len(points) < 2:
+        return None
+    sample = right_side_sample(points)
+    candidates = []
+    for clockwise in (False, True):
+        closure = boundary_path(points[-1], points[0], MAP_EXTENT, clockwise=clockwise)
+        polygon = Polygon([*points, *closure])
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        if not polygon.is_empty:
+            candidates.append(polygon)
+    if not candidates:
+        return None
+    if sample:
+        sample_point = Point(sample)
+        for polygon in candidates:
+            if polygon.contains(sample_point):
+                return polygon
+    return max(candidates, key=lambda polygon: polygon.area)
+
+
 def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     nonempty = [line.strip() for line in lines if line.strip()]
@@ -1076,6 +1189,8 @@ def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ..
     for label in DAY48_PROB_ORDER:
         legend, _face, edge = DAY48_PROB_STYLE[label]
         for polygon_or_geometry in map_polygons.get(label, ()):
+            if is_open_coordinate_sequence(polygon_or_geometry):
+                continue
             if hasattr(polygon_or_geometry, "geom_type"):
                 geometry = polygon_or_geometry
             else:
@@ -1112,6 +1227,8 @@ def draw_day48_day_labels(ax: Any, product: PtsProduct, transform: Any) -> None:
         geometries = []
         for label in DAY48_PROB_ORDER:
             for polygon_or_geometry in product.maps.get(day_key, {}).get(label, ()):
+                if is_open_coordinate_sequence(polygon_or_geometry):
+                    continue
                 if hasattr(polygon_or_geometry, "geom_type"):
                     geometry = polygon_or_geometry
                 else:
@@ -1209,6 +1326,31 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     for label in order:
         polygons = map_polygons.get(label, ())
         for polygon_or_geometry in polygons:
+            if product.source == "pts" and is_open_coordinate_sequence(polygon_or_geometry):
+                _legend, face, edge = preview_style_for_label(map_label, label)
+                points = list(polygon_or_geometry)
+                repaired = close_open_pts_contour(points)
+                if repaired is not None:
+                    ax.add_geometries(
+                        [repaired],
+                        crs=transform,
+                        facecolor=face,
+                        edgecolor="none",
+                        linewidth=0,
+                        alpha=0.46,
+                        zorder=9 + order.index(label) if label in order else 9,
+                    )
+                ax.plot(
+                    [point[0] for point in points],
+                    [point[1] for point in points],
+                    transform=transform,
+                    color=edge,
+                    linewidth=2.35,
+                    alpha=0.88,
+                    solid_capstyle="round",
+                    zorder=28 + order.index(label) if label in order else 28,
+                )
+                continue
             if hasattr(polygon_or_geometry, "geom_type"):
                 geometry = polygon_or_geometry
             else:

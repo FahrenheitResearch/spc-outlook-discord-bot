@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import spc_outlook_bot as bot  # noqa: E402
+from shapely.geometry import Point  # noqa: E402
 
 
 DAY1_HTML = """
@@ -190,6 +191,21 @@ class ParserTests(unittest.TestCase):
         self.assertIn("0.15", product.maps["wind"])
         self.assertIn("CIG1", product.maps["wind"])
         self.assertEqual(product.maps["categorical"]["MRGL"][0][0], (-100.21, 34.21))
+
+    def test_open_pts_contours_close_to_right_side_without_chord(self) -> None:
+        points = [
+            (-112.45, 31.26),
+            (-104.01, 38.92),
+            (-96.61, 33.99),
+            (-83.67, 33.65),
+            (-74.59, 36.38),
+        ]
+
+        repaired = bot.close_open_pts_contour(points)
+
+        self.assertIsNotNone(repaired)
+        self.assertTrue(repaired.contains(Point((-100.0, 30.5))))
+        self.assertFalse(repaired.contains(Point((-100.0, 45.0))))
 
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
