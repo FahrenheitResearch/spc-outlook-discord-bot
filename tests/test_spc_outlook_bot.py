@@ -309,6 +309,31 @@ class ParserTests(unittest.TestCase):
 
         self.assertIs(chosen, pts_product)
 
+    def test_geojson_only_uses_pts_for_day48(self) -> None:
+        spec = bot.BUNDLES[3]
+        pts_product = bot.PtsProduct(
+            spec=spec,
+            product_id="PTSD48:1200Z",
+            title=spec.name,
+            issued="1200 PM CDT SUN JUN 14 2026",
+            valid="171200Z - 221200Z",
+            updated="1200 PM CDT SUN JUN 14 2026",
+            source="pts",
+            maps={},
+        )
+        original_geojson = bot.fetch_geojson_product_for_spec
+        original_pts = bot.pts_product_from_text_or_feed
+        try:
+            bot.fetch_geojson_product_for_spec = lambda _spec: self.fail("Day 4-8 should not use direct GeoJSON")
+            bot.pts_product_from_text_or_feed = lambda _spec, _pts_text=None: pts_product
+
+            chosen = bot.choose_custom_product(spec, None, "geojson-only")
+        finally:
+            bot.fetch_geojson_product_for_spec = original_geojson
+            bot.pts_product_from_text_or_feed = original_pts
+
+        self.assertIs(chosen, pts_product)
+
     def test_risk_filter_supports_enh_plus_and_day48_override(self) -> None:
         product = bot.parse_pts_text(PTS_DAY1_TEXT, bot.BUNDLES[0])
         day1_snapshot = bot.BundleSnapshot(

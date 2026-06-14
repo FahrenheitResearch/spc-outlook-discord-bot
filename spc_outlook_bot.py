@@ -711,6 +711,8 @@ def choose_custom_product(spec: BundleSpec, pts_text: str | None, custom_source:
     if custom_source == "pts-only":
         return pts_product_from_text_or_feed(spec, pts_text)
     if custom_source == "geojson-only":
+        if not spec_supports_geojson(spec):
+            return pts_product_from_text_or_feed(spec, pts_text)
         return fetch_geojson_product_for_spec(spec)
 
     geojson_product: PtsProduct | None = None

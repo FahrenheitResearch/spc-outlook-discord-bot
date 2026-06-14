@@ -33,7 +33,7 @@ Each full current-set run becomes four image-only Discord messages:
 | Source | Behavior |
 | --- | --- |
 | `geojson-first` | Default. Uses official SPC GeoJSON when it is current, but switches to raw PTS when raw PTS has a newer issue time. |
-| `geojson-only` | Requires SPC GeoJSON. Useful for quality testing Day 1-3, but Day 4-8 is not available in this source. |
+| `geojson-only` | Uses official SPC GeoJSON for Day 1-3. Day 4-8 falls back to PTS because SPC does not publish the same live GeoJSON source for it. |
 | `pts-only` | Earliest raw-text geometry path. It is kept for experiments, but Day 1-3 PTS text can contain open contours that do not fully encode coastline/border closures. |
 
 ## Optional Risk Filtering
