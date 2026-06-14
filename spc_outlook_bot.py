@@ -37,6 +37,7 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -878,6 +879,34 @@ def close_open_pts_contour(points: list[tuple[float, float]]) -> Any | None:
     return max(candidates, key=lambda polygon: polygon.area)
 
 
+@lru_cache(maxsize=1)
+def conus_land_mask() -> Any:
+    import cartopy.io.shapereader as shapereader
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+
+    path = shapereader.natural_earth("50m", "cultural", "admin_0_countries")
+    reader = shapereader.Reader(path)
+    united_states = [
+        record.geometry
+        for record in reader.records()
+        if record.attributes.get("ADMIN") == "United States of America"
+    ]
+    if not united_states:
+        raise BotError("could not load United States boundary for open PTS contour clipping")
+    min_lon, max_lon, min_lat, max_lat = MAP_EXTENT
+    return unary_union(united_states).intersection(box(min_lon, min_lat, max_lon, max_lat))
+
+
+def clip_open_pts_fill_to_conus(geometry: Any) -> Any:
+    try:
+        clipped = geometry.intersection(conus_land_mask())
+    except Exception as exc:  # noqa: BLE001
+        log(f"open PTS CONUS clipping failed, using unmasked fill: {exc}")
+        return geometry
+    return clipped if not clipped.is_empty else geometry
+
+
 def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
     nonempty = [line.strip() for line in lines if line.strip()]
@@ -1331,15 +1360,18 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
                 points = list(polygon_or_geometry)
                 repaired = close_open_pts_contour(points)
                 if repaired is not None:
-                    ax.add_geometries(
-                        [repaired],
-                        crs=transform,
-                        facecolor=face,
-                        edgecolor="none",
-                        linewidth=0,
-                        alpha=0.46,
-                        zorder=9 + order.index(label) if label in order else 9,
-                    )
+                    repaired = clip_open_pts_fill_to_conus(repaired)
+                    repaired_parts = [part for part in geometry_parts(repaired) if not part.is_empty and part.area > 0.01]
+                    if repaired_parts:
+                        ax.add_geometries(
+                            repaired_parts,
+                            crs=transform,
+                            facecolor=face,
+                            edgecolor="none",
+                            linewidth=0,
+                            alpha=0.46,
+                            zorder=9 + order.index(label) if label in order else 9,
+                        )
                 ax.plot(
                     [point[0] for point in points],
                     [point[1] for point in points],
