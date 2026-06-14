@@ -1098,10 +1098,30 @@ def clip_open_pts_fill_to_conus(geometry: Any) -> Any:
 
 
 def repaired_open_pts_geometry(points: list[tuple[float, float]]) -> Any | None:
-    repaired = close_open_pts_contour(points)
-    if repaired is None:
+    from shapely.geometry import Polygon
+
+    if len(points) < 2:
         return None
-    return clip_open_pts_fill_to_conus(repaired)
+
+    candidates = []
+    for clockwise in (False, True):
+        closure = boundary_path(points[-1], points[0], MAP_EXTENT, clockwise=clockwise)
+        polygon = Polygon([*points, *closure])
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        if polygon.is_empty:
+            continue
+        try:
+            clipped = polygon.intersection(conus_land_mask())
+        except Exception as exc:  # noqa: BLE001
+            log(f"open PTS CONUS clipping failed, using unclipped closure candidate: {exc}")
+            clipped = polygon
+        if not clipped.is_empty and getattr(clipped, "area", 0.0) > 0.01:
+            candidates.append(clipped)
+
+    if not candidates:
+        return close_open_pts_contour(points)
+    return min(candidates, key=lambda geometry: geometry.area)
 
 
 def parse_pts_text(text: str, spec: BundleSpec) -> PtsProduct:

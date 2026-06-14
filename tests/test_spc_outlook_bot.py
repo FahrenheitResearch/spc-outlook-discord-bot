@@ -269,6 +269,35 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(repaired.contains(Point((-122.33, 47.61))))  # Seattle
         self.assertFalse(repaired.contains(Point((-87.63, 41.88))))  # Chicago
 
+    def test_current_style_slgt_open_contour_does_not_pick_conus_complement(self) -> None:
+        points = [
+            (-70.62, 46.17), (-69.80, 45.45), (-69.71, 45.12), (-69.93, 44.66),
+            (-71.53, 43.36), (-72.31, 42.21), (-73.11, 40.01),
+        ]
+
+        repaired = bot.repaired_open_pts_geometry(points)
+
+        self.assertIsNotNone(repaired)
+        self.assertLess(repaired.area, 40.0)
+        self.assertFalse(repaired.contains(Point((-100.78, 46.81))))  # Bismarck
+        self.assertFalse(repaired.contains(Point((-122.33, 47.61))))  # Seattle
+        self.assertFalse(repaired.contains(Point((-104.99, 39.74))))  # Denver
+        self.assertFalse(repaired.contains(Point((-96.80, 32.78))))  # Dallas
+
+    def test_current_style_mrgl_open_contour_does_not_pick_conus_complement(self) -> None:
+        points = [
+            (-67.10, 45.73), (-69.49, 44.20), (-70.77, 43.22), (-71.68, 40.67),
+        ]
+
+        repaired = bot.repaired_open_pts_geometry(points)
+
+        self.assertIsNotNone(repaired)
+        self.assertLess(repaired.area, 20.0)
+        self.assertFalse(repaired.contains(Point((-100.78, 46.81))))  # Bismarck
+        self.assertFalse(repaired.contains(Point((-122.33, 47.61))))  # Seattle
+        self.assertFalse(repaired.contains(Point((-104.99, 39.74))))  # Denver
+        self.assertFalse(repaired.contains(Point((-96.80, 32.78))))  # Dallas
+
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
 
