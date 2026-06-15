@@ -164,7 +164,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS
 http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 ```
 
-`PTS` is the fastest trigger because it announces the outlook geometry product. In the default `geojson-first` source, Day 1-3 posting uses matching SPC GeoJSON when it is current, but raw PTS wins if it has a newer issue time. `SWO` discussion products can still trigger a refresh.
+`PTS` is the fastest trigger because it announces the outlook geometry product. In the default `geojson-first` source, Day 1-3 posting uses matching SPC GeoJSON when it is current, but raw PTS wins if it has a newer issue time. In `link` message mode, the discussion card/button is populated from the matching raw `SWODY*` text feed, not by waiting for the SPC HTML page.
 
 ## Configuration
 
@@ -179,7 +179,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | `SPC_IMAGE_SAFE_SCALE` | `0.95` | Shrinks custom maps inside the PNG canvas so Discord attachment previews crop less. Use `1.0` to disable. |
 | `SPC_MIN_RISK_LEVEL` | `any` | Optional Day 1-3 custom bundle filter. Use `enh` for Enhanced-or-higher posts only. |
 | `SPC_ALWAYS_POST_DAY48` | `0` | With risk filtering enabled, still post any Day 4-8 outlook with a 15% or 30% area. |
-| `SPC_MESSAGE_CONTENT` | `none` | `none`, `link`, `short`, or `debug`. `link` adds the official SPC product/discussion page above the images. |
+| `SPC_MESSAGE_CONTENT` | `none` | `none`, `link`, `short`, or `debug`. `link` adds a raw `SWODY*` discussion embed and `View Discussion` button above the images. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
 | `SPC_FETCH_ATTEMPTS` | `4` | Normal fetch retry count. |
 | `SPC_TRIGGER_FETCH_ATTEMPTS` | `12` | Retry count after an NWWS trigger, mainly for official-image modes. |

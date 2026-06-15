@@ -60,6 +60,12 @@ RAW_PTS_URLS = {
     "day3": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus03.kwns.pts.dy3.txt",
     "day4-8": "https://tgftp.nws.noaa.gov/data/raw/wu/wuus48.kwns.pts.d48.txt",
 }
+RAW_DISCUSSION_URLS = {
+    "day1": "https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
+    "day2": "https://tgftp.nws.noaa.gov/data/raw/ac/acus02.kwns.swo.dy2.txt",
+    "day3": "https://tgftp.nws.noaa.gov/data/raw/ac/acus03.kwns.swo.dy3.txt",
+    "day4-8": "https://tgftp.nws.noaa.gov/data/raw/ac/acus48.kwns.swo.d48.txt",
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -90,6 +96,10 @@ class BundleSnapshot:
     page_url: str
     images: tuple[MapImage, ...]
     risk_labels: tuple[str, ...] = ()
+    issued: str = ""
+    valid: str = ""
+    discussion: str = ""
+    discussion_url: str = ""
 
     @property
     def post_key(self) -> str:
@@ -113,6 +123,17 @@ class PtsProduct:
     updated: str
     source: str
     maps: dict[str, dict[str, tuple[tuple[tuple[float, float], ...], ...]]]
+    discussion: str = ""
+    discussion_url: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class DiscussionText:
+    title: str
+    issued: str
+    valid: str
+    body: str
+    url: str
 
 
 BUNDLES: tuple[BundleSpec, ...] = (
@@ -599,6 +620,54 @@ def fetch_raw_pts_text_for_spec(spec: BundleSpec) -> str:
     if not raw_url:
         raise BotError(f"{spec.name}: no raw PTS feed URL is configured")
     return fetch_text(raw_url)
+
+
+def raw_discussion_url_for_spec(spec: BundleSpec) -> str:
+    raw_url = RAW_DISCUSSION_URLS.get(spec.key)
+    if not raw_url:
+        raise BotError(f"{spec.name}: no raw SWO discussion URL is configured")
+    return raw_url
+
+
+def fetch_raw_discussion_text_for_spec(spec: BundleSpec) -> DiscussionText:
+    raw_url = raw_discussion_url_for_spec(spec)
+    return parse_raw_discussion_text(fetch_text(raw_url, timeout=8), raw_url)
+
+
+def parse_raw_discussion_text(text: str, url: str = "") -> DiscussionText:
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    start_index = 0
+    for index, line in enumerate(lines):
+        if "Convective Outlook" in line:
+            start_index = index
+            break
+    body_lines = lines[start_index:]
+    while body_lines and not body_lines[0].strip():
+        body_lines.pop(0)
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+    for index, line in enumerate(body_lines):
+        if line.strip() == "$$":
+            body_lines = body_lines[:index]
+            break
+
+    nonempty = [line.strip() for line in body_lines if line.strip()]
+    title = nonempty[0] if nonempty else ""
+    issued = ""
+    valid = ""
+    for index, line in enumerate(nonempty):
+        if title and line == title and index + 2 < len(nonempty):
+            issued = nonempty[index + 2]
+        if line.upper().startswith("VALID "):
+            valid = line[6:].strip()
+            break
+    return DiscussionText(
+        title=title,
+        issued=issued,
+        valid=valid,
+        body="\n".join(body_lines).strip(),
+        url=url,
+    )
 
 
 def find_geojson_url(html: str, spec: BundleSpec) -> str | None:
@@ -2199,6 +2268,10 @@ def render_preview_bundle(
         page_url=spec.page_url,
         images=tuple(images),
         risk_labels=risk_labels_from_product(product),
+        issued=product.issued,
+        valid=product.valid,
+        discussion=product.discussion,
+        discussion_url=product.discussion_url,
     )
 
 
@@ -2396,16 +2469,98 @@ def multipart_body(payload: dict[str, Any], images: tuple[MapImage, ...]) -> tup
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
+def add_query_param(url: str, key: str, value: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    query = [(item_key, item_value) for item_key, item_value in query if item_key != key]
+    query.append((key, value))
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment)
+    )
+
+
+def truncate_discord_text(value: str, limit: int) -> str:
+    clean = value.strip()
+    if len(clean) <= limit:
+        return clean
+    clipped = clean[: max(0, limit - 4)].rstrip()
+    if "\n" in clipped:
+        clipped = clipped.rsplit("\n", 1)[0].rstrip()
+    return f"{clipped}\n..."
+
+
+def normalized_time_range(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip().upper())
+
+
+def snapshot_with_raw_discussion(snapshot: BundleSnapshot) -> BundleSnapshot:
+    if snapshot.discussion:
+        return snapshot
+    try:
+        discussion = fetch_raw_discussion_text_for_spec(snapshot.spec)
+    except Exception as exc:  # noqa: BLE001
+        log(f"{snapshot.spec.name}: raw SWO discussion fetch failed: {exc}")
+        return snapshot
+    if snapshot.valid and discussion.valid and normalized_time_range(snapshot.valid) != normalized_time_range(discussion.valid):
+        log(
+            f"{snapshot.spec.name}: raw SWO discussion valid time {discussion.valid!r} "
+            f"does not match PTS valid time {snapshot.valid!r}; skipping discussion embed"
+        )
+        return snapshot
+    return dataclasses.replace(
+        snapshot,
+        issued=discussion.issued or snapshot.issued,
+        valid=discussion.valid or snapshot.valid,
+        discussion=discussion.body,
+        discussion_url=discussion.url,
+    )
+
+
+def discord_discussion_embed(snapshot: BundleSnapshot) -> dict[str, Any] | None:
+    if not (snapshot.discussion or snapshot.issued or snapshot.valid):
+        return None
+    description = truncate_discord_text(snapshot.discussion, 2400) if snapshot.discussion else ""
+    fields = []
+    if snapshot.valid:
+        fields.append({"name": "Valid", "value": snapshot.valid, "inline": True})
+    if snapshot.issued:
+        fields.append({"name": "Issued", "value": snapshot.issued, "inline": True})
+    fields.append({"name": "Source", "value": "NOAA/NWS Storm Prediction Center raw text", "inline": False})
+    embed: dict[str, Any] = {
+        "title": f"{snapshot.spec.name} - Discussion",
+        "description": description or None,
+        "color": 0xF4D03F,
+        "fields": fields,
+        "footer": {"text": "Unofficial Yalllooks render - not an official SPC/NWS graphic"},
+    }
+    return {key: value for key, value in embed.items() if value is not None}
+
+
+def discord_link_button(label: str, url: str) -> dict[str, Any]:
+    return {
+        "type": 1,
+        "components": [
+            {
+                "type": 2,
+                "style": 5,
+                "label": label,
+                "url": url,
+            }
+        ],
+    }
+
+
 def discord_payload(snapshot: BundleSnapshot, *, content_mode: str, include_username: bool) -> dict[str, Any]:
     payload: dict[str, Any] = {"allowed_mentions": {"parse": []}}
     if include_username:
         payload["username"] = os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot")
     if content_mode == "link":
-        payload["content"] = (
-            f"{snapshot.spec.name}\n"
-            f"Updated: {snapshot.updated or snapshot.product_id}\n"
-            f"Official SPC discussion/product: <{snapshot.page_url}>"
-        )
+        payload["content"] = f"{snapshot.spec.name}\nUpdated: {snapshot.updated or snapshot.product_id}"
+        embed = discord_discussion_embed(snapshot)
+        if embed:
+            payload["embeds"] = [embed]
+        if snapshot.discussion_url:
+            payload["components"] = [discord_link_button("View Discussion", snapshot.discussion_url)]
     elif content_mode == "short":
         payload["content"] = f"{snapshot.spec.name} - {snapshot.updated or snapshot.product_id}"
     elif content_mode == "debug":
@@ -2423,10 +2578,11 @@ def post_to_discord_webhook(snapshot: BundleSnapshot, webhook_url: str, *, conte
     payload = discord_payload(snapshot, content_mode=content_mode, include_username=True)
     body, content_type = multipart_body(payload, snapshot.images)
     headers = {"Content-Type": content_type}
+    target_url = add_query_param(webhook_url, "with_components", "true") if payload.get("components") else webhook_url
 
     try:
         with request(
-            webhook_url,
+            target_url,
             method="POST",
             data=body,
             headers=headers,
@@ -2484,6 +2640,8 @@ def post_bundle(
     dry_run_dir: Path,
     content_mode: str,
 ) -> str:
+    if content_mode == "link":
+        snapshot = snapshot_with_raw_discussion(snapshot)
     if dry_run:
         write_bundle_files(snapshot, dry_run_dir)
         return f"dry-run wrote {len(snapshot.images)} image(s) to {dry_run_dir / snapshot.spec.key}"

@@ -94,6 +94,28 @@ SLGT 36009600 37009500 38009600 36009600
 """
 
 
+SWODY1_TEXT = """
+ACUS01 KWNS 150043
+SWODY1
+SPC AC 150042
+
+Day 1 Convective Outlook
+NWS Storm Prediction Center Norman OK
+0742 PM CDT Sun Jun 14 2026
+
+Valid 150100Z - 151200Z
+
+...THERE IS A SLIGHT RISK OF SEVERE THUNDERSTORMS THIS EVENING...
+
+...SUMMARY...
+Thunderstorm activity spreading toward the northern Mid Atlantic
+urban corridor this evening could still pose a risk for damaging
+wind gusts.
+
+$$
+"""
+
+
 PTS_DAY48_TEXT = """
 WUUS48 KWNS 130753
 PTSD48
@@ -221,6 +243,19 @@ class ParserTests(unittest.TestCase):
         self.assertIn("0.15", product.maps["wind"])
         self.assertIn("CIG1", product.maps["wind"])
         self.assertEqual(product.maps["categorical"]["MRGL"][0][0], (-100.21, 34.21))
+
+    def test_raw_discussion_text_parser_extracts_fast_swo_body(self) -> None:
+        discussion = bot.parse_raw_discussion_text(
+            SWODY1_TEXT,
+            "https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
+        )
+
+        self.assertEqual(discussion.title, "Day 1 Convective Outlook")
+        self.assertEqual(discussion.issued, "0742 PM CDT Sun Jun 14 2026")
+        self.assertEqual(discussion.valid, "150100Z - 151200Z")
+        self.assertIn("...SUMMARY...", discussion.body)
+        self.assertNotIn("ACUS01", discussion.body)
+        self.assertNotIn("$$", discussion.body)
 
     def test_open_pts_contours_close_to_right_side_without_chord(self) -> None:
         points = [
@@ -564,7 +599,7 @@ class ParserTests(unittest.TestCase):
         self.assertIn("FeatureCollection", text)
         self.assertEqual(parsed["type"], "FeatureCollection")
 
-    def test_link_content_adds_official_product_url(self) -> None:
+    def test_link_content_adds_raw_discussion_embed_and_button(self) -> None:
         snapshot = bot.BundleSnapshot(
             spec=bot.BUNDLES[0],
             title="Day 1",
@@ -572,13 +607,22 @@ class ParserTests(unittest.TestCase):
             product_id="preview:PTSDY1:141630Z",
             page_url="https://www.spc.noaa.gov/products/outlook/day1otlk.html",
             images=(),
+            issued="0742 PM CDT Sun Jun 14 2026",
+            valid="150100Z - 151200Z",
+            discussion="Day 1 Convective Outlook\n\n...SUMMARY...\nSevere storms are possible.",
+            discussion_url="https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
         )
 
         payload = bot.discord_payload(snapshot, content_mode="link", include_username=False)
 
         self.assertIn("Updated: 2026-06-14 1631Z", payload["content"])
-        self.assertIn("Official SPC discussion/product:", payload["content"])
-        self.assertIn("<https://www.spc.noaa.gov/products/outlook/day1otlk.html>", payload["content"])
+        self.assertEqual(payload["embeds"][0]["fields"][0]["value"], "150100Z - 151200Z")
+        self.assertIn("...SUMMARY...", payload["embeds"][0]["description"])
+        self.assertEqual(payload["components"][0]["components"][0]["label"], "View Discussion")
+        self.assertEqual(
+            payload["components"][0]["components"][0]["url"],
+            "https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
+        )
 
 
 if __name__ == "__main__":
