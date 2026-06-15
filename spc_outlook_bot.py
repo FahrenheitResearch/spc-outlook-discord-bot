@@ -2246,33 +2246,41 @@ def render_preview_bundle(
     custom_source: str = "geojson-first",
 ) -> BundleSnapshot:
     product = choose_custom_product(spec, pts_text, custom_source)
-    images: list[MapImage] = []
-    for map_label in spec.expected_order:
-        data = render_pts_map_png(product, map_label)
-        digest = hashlib.sha256(data).hexdigest()
-        images.append(
-            MapImage(
-                label=map_label,
-                url=f"{product.source}://{product.product_id}/{map_label}",
-                filename=f"{spec.key}_fast_{map_label}.png",
-                content_type="image/png",
-                sha256=digest,
-                data=data,
-            )
-        )
+    return render_product_bundle(product)
+
+
+def preview_snapshot_from_product(product: PtsProduct, images: tuple[MapImage, ...] = ()) -> BundleSnapshot:
     return BundleSnapshot(
-        spec=spec,
-        title=f"{spec.name} Fast Custom Preview",
+        spec=product.spec,
+        title=f"{product.spec.name} Fast Custom Preview",
         updated=product.updated,
         product_id=f"preview:{product.product_id}",
-        page_url=spec.page_url,
-        images=tuple(images),
+        page_url=product.spec.page_url,
+        images=images,
         risk_labels=risk_labels_from_product(product),
         issued=product.issued,
         valid=product.valid,
         discussion=product.discussion,
         discussion_url=product.discussion_url,
     )
+
+
+def render_product_bundle(product: PtsProduct) -> BundleSnapshot:
+    images: list[MapImage] = []
+    for map_label in product.spec.expected_order:
+        data = render_pts_map_png(product, map_label)
+        digest = hashlib.sha256(data).hexdigest()
+        images.append(
+            MapImage(
+                label=map_label,
+                url=f"{product.source}://{product.product_id}/{map_label}",
+                filename=f"{product.spec.key}_fast_{map_label}.png",
+                content_type="image/png",
+                sha256=digest,
+                data=data,
+            )
+        )
+    return preview_snapshot_from_product(product, tuple(images))
 
 
 def render_mode_posts_preview(mode: str) -> bool:
@@ -2639,8 +2647,9 @@ def post_bundle(
     dry_run: bool,
     dry_run_dir: Path,
     content_mode: str,
+    include_discussion: bool = True,
 ) -> str:
-    if content_mode == "link":
+    if content_mode == "link" and include_discussion:
         snapshot = snapshot_with_raw_discussion(snapshot)
     if dry_run:
         write_bundle_files(snapshot, dry_run_dir)
@@ -2685,6 +2694,18 @@ class OutlookBot:
         signature = f"risk:{min_level}|day48:{int(self.args.always_post_day48)}"
         return hashlib.sha256(f"{base_key}|{signature}".encode("utf-8")).hexdigest()
 
+    def discussion_post_key(self, snapshot: BundleSnapshot) -> str:
+        raw = f"discussion|{snapshot.spec.key}|{snapshot.product_id}|{snapshot.updated}|{snapshot.valid}"
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def should_prepost_discussion(self) -> bool:
+        return (
+            self.args.prepost_discussion
+            and self.args.message_content == "link"
+            and self.args.custom_source == "pts-only"
+            and render_mode_posts_preview(self.args.render_mode)
+        )
+
     def start_nwws_if_requested(self) -> None:
         if not self.args.autostart_nwws:
             return
@@ -2724,6 +2745,76 @@ class OutlookBot:
             return
         process.kill()
 
+    def prepost_discussion(
+        self,
+        snapshot: BundleSnapshot,
+        reason: str,
+        *,
+        prime_only: bool = False,
+    ) -> bool:
+        state_key = f"{snapshot.spec.key}:discussion"
+        post_key = self.discussion_post_key(snapshot)
+        if bundle_is_posted(self.state, snapshot, state_key=state_key, post_key=post_key):
+            return True
+        if prime_only:
+            mark_posted(
+                self.state,
+                snapshot,
+                mode="primed",
+                reason=f"{reason}:discussion",
+                state_key=state_key,
+                post_key=post_key,
+            )
+            save_state(self.state_path, self.state)
+            return True
+
+        passes_filter, filter_reason = snapshot_passes_risk_filter(
+            snapshot,
+            min_risk_level=self.args.min_risk_level,
+            always_post_day48=self.args.always_post_day48,
+        )
+        if not passes_filter:
+            mark_posted(
+                self.state,
+                snapshot,
+                mode="filtered",
+                reason=f"{reason}:discussion: {filter_reason}",
+                state_key=state_key,
+                post_key=post_key,
+            )
+            save_state(self.state_path, self.state)
+            return False
+
+        discussion_snapshot = snapshot_with_raw_discussion(dataclasses.replace(snapshot, images=()))
+        if not discussion_snapshot.discussion:
+            return False
+        try:
+            result = post_bundle(
+                discussion_snapshot,
+                webhook_url=self.args.discord_webhook_url,
+                bot_token=self.args.discord_bot_token,
+                channel_id=self.args.discord_channel_id,
+                dry_run=self.args.dry_run,
+                dry_run_dir=Path(self.args.dry_run_dir),
+                content_mode="link",
+                include_discussion=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log(f"{snapshot.spec.name}: fast raw discussion prepost failed: {exc}")
+            return False
+        mode = "dry-run" if self.args.dry_run else "posted"
+        mark_posted(
+            self.state,
+            discussion_snapshot,
+            mode=mode,
+            reason=f"{reason}:discussion: {filter_reason}",
+            state_key=state_key,
+            post_key=post_key,
+        )
+        save_state(self.state_path, self.state)
+        log(f"{snapshot.spec.name}: {result}; fast raw discussion prepost; product={snapshot.product_id}")
+        return True
+
     def handle_snapshot(
         self,
         snapshot: BundleSnapshot,
@@ -2731,6 +2822,7 @@ class OutlookBot:
         *,
         prime_only: bool = False,
         state_key: str | None = None,
+        include_discussion: bool = True,
     ) -> None:
         post_key = self.configured_post_key(snapshot)
         if bundle_is_posted(self.state, snapshot, state_key=state_key, post_key=post_key):
@@ -2768,6 +2860,7 @@ class OutlookBot:
             dry_run=self.args.dry_run,
             dry_run_dir=Path(self.args.dry_run_dir),
             content_mode=self.args.message_content,
+            include_discussion=include_discussion,
         )
         mode = "dry-run" if self.args.dry_run else "posted"
         mark_posted(self.state, snapshot, mode=mode, reason=f"{reason}: {filter_reason}", state_key=state_key, post_key=post_key)
@@ -2779,14 +2872,31 @@ class OutlookBot:
         for spec in BUNDLES:
             try:
                 if render_mode_posts_preview(self.args.render_mode):
-                    preview = render_preview_bundle(spec, custom_source=self.args.custom_source)
                     preview_key = f"{spec.key}:preview"
+                    preposted = False
+                    if self.should_prepost_discussion():
+                        pts_text = fetch_raw_pts_text_for_spec(spec)
+                        product = choose_custom_product(spec, pts_text, self.args.custom_source)
+                        metadata = preview_snapshot_from_product(product)
+                        post_key = self.configured_post_key(metadata)
+                        if changed_only and bundle_is_posted(self.state, metadata, state_key=preview_key, post_key=post_key):
+                            log(f"{metadata.spec.name}: unchanged ({metadata.product_id})")
+                            continue
+                        preposted = self.prepost_discussion(
+                            metadata,
+                            f"{reason}:preview",
+                            prime_only=prime_only,
+                        )
+                        preview = render_product_bundle(product)
+                    else:
+                        preview = render_preview_bundle(spec, custom_source=self.args.custom_source)
                     if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
                         self.handle_snapshot(
                             preview,
                             f"{reason}:preview",
                             prime_only=prime_only,
                             state_key=preview_key,
+                            include_discussion=not preposted,
                         )
                 if render_mode_posts_official(self.args.render_mode):
                     snapshot = snapshot_with_retries(
@@ -2811,12 +2921,26 @@ class OutlookBot:
                         if awips_id.upper().startswith("PTS") and raw_bulletin and raw_bulletin.strip()
                         else None
                     )
-                    preview = render_preview_bundle(
-                        spec,
-                        pts_text=pts_text,
-                        custom_source=self.args.custom_source,
+                    preposted = False
+                    if self.should_prepost_discussion():
+                        if pts_text is None:
+                            pts_text = fetch_raw_pts_text_for_spec(spec)
+                        product = choose_custom_product(spec, pts_text, self.args.custom_source)
+                        metadata = preview_snapshot_from_product(product)
+                        preposted = self.prepost_discussion(metadata, f"{reason}:preview")
+                        preview = render_product_bundle(product)
+                    else:
+                        preview = render_preview_bundle(
+                            spec,
+                            pts_text=pts_text,
+                            custom_source=self.args.custom_source,
+                        )
+                    self.handle_snapshot(
+                        preview,
+                        f"{reason}:preview",
+                        state_key=f"{spec.key}:preview",
+                        include_discussion=not preposted,
                     )
-                    self.handle_snapshot(preview, f"{reason}:preview", state_key=f"{spec.key}:preview")
                 if render_mode_posts_official(self.args.render_mode):
                     snapshot = snapshot_with_retries(
                         spec,
@@ -2949,7 +3073,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--message-content",
         choices=("none", "link", "short", "debug"),
         default=os.getenv("SPC_MESSAGE_CONTENT", "none"),
-        help="Discord message text. 'none' posts image-only messages; 'link' adds the official SPC page URL.",
+        help="Discord message text. 'link' adds raw SWODY discussion metadata.",
+    )
+    parser.add_argument(
+        "--prepost-discussion",
+        action="store_true",
+        default=env_bool("SPC_PREPOST_DISCUSSION", False),
+        help="in pts-only link mode, post the raw SWODY discussion card before rendering image maps",
     )
     parser.add_argument(
         "--render-mode",

@@ -2,6 +2,7 @@ import json
 import argparse
 import dataclasses
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -623,6 +624,72 @@ class ParserTests(unittest.TestCase):
             payload["components"][0]["components"][0]["url"],
             "https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
         )
+
+    def test_prepost_discussion_sends_text_only_before_images(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            args = argparse.Namespace(
+                state_file=str(Path(temp_dir) / "state.json"),
+                min_risk_level="any",
+                always_post_day48=False,
+                prepost_discussion=True,
+                message_content="link",
+                custom_source="pts-only",
+                render_mode="custom-only",
+                discord_webhook_url="https://discord.invalid/webhook",
+                discord_bot_token=None,
+                discord_channel_id=None,
+                dry_run=False,
+                dry_run_dir=str(Path(temp_dir) / "dry-run"),
+            )
+            runner = bot.OutlookBot(args)
+            snapshot = bot.BundleSnapshot(
+                spec=bot.BUNDLES[0],
+                title="Day 1",
+                updated="0742 PM CDT SUN JUN 14 2026",
+                product_id="preview:PTSDY1:150100Z",
+                page_url=bot.BUNDLES[0].page_url,
+                images=(
+                    bot.MapImage(
+                        label="categorical",
+                        url="pts://test",
+                        filename="day1.png",
+                        content_type="image/png",
+                        sha256="abc",
+                        data=b"image",
+                    ),
+                ),
+                risk_labels=("SLGT",),
+                issued="0742 PM CDT Sun Jun 14 2026",
+                valid="150100Z - 151200Z",
+                discussion="Day 1 Convective Outlook\n\n...SUMMARY...\nSevere storms are possible.",
+                discussion_url="https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
+            )
+            calls: list[tuple[bot.BundleSnapshot, bool]] = []
+            original_post_bundle = bot.post_bundle
+            try:
+                def fake_post_bundle(
+                    posted_snapshot: bot.BundleSnapshot,
+                    **kwargs: object,
+                ) -> str:
+                    calls.append((posted_snapshot, bool(kwargs["include_discussion"])))
+                    return "posted 0 image(s) to Discord webhook"
+
+                bot.post_bundle = fake_post_bundle  # type: ignore[assignment]
+                self.assertTrue(runner.prepost_discussion(snapshot, "test"))
+            finally:
+                bot.post_bundle = original_post_bundle  # type: ignore[assignment]
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][0].images, ())
+            self.assertFalse(calls[0][1])
+            self.assertTrue(
+                bot.bundle_is_posted(
+                    runner.state,
+                    snapshot,
+                    state_key="day1:discussion",
+                    post_key=runner.discussion_post_key(snapshot),
+                )
+            )
 
 
 if __name__ == "__main__":
