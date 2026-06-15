@@ -625,6 +625,31 @@ class ParserTests(unittest.TestCase):
             "https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
         )
 
+    def test_link_content_keeps_official_page_url_on_image_messages(self) -> None:
+        snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1",
+            updated="2026-06-14 1631Z",
+            product_id="preview:PTSDY1:141630Z",
+            page_url="https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+            images=(
+                bot.MapImage(
+                    label="categorical",
+                    url="pts://test",
+                    filename="day1.png",
+                    content_type="image/png",
+                    sha256="abc",
+                    data=b"image",
+                ),
+            ),
+        )
+
+        payload = bot.discord_payload(snapshot, content_mode="link", include_username=False)
+
+        self.assertIn("Official SPC discussion/product:", payload["content"])
+        self.assertIn("<https://www.spc.noaa.gov/products/outlook/day1otlk.html>", payload["content"])
+        self.assertNotIn("embeds", payload)
+
     def test_prepost_discussion_sends_text_only_before_images(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             args = argparse.Namespace(
