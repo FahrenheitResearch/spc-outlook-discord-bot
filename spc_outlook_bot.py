@@ -1707,6 +1707,25 @@ def outlook_geometry_for_label(
     return unary_union(geometries) if len(geometries) > 1 else geometries[0]
 
 
+def repaired_outlook_geometry(geometry: Any) -> Any:
+    if geometry is None or geometry.is_empty:
+        return geometry
+    try:
+        if geometry.is_valid:
+            return geometry
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from shapely.validation import make_valid
+
+        repaired = make_valid(geometry)
+    except Exception:  # noqa: BLE001
+        repaired = geometry.buffer(0)
+    if not repaired.is_valid:
+        repaired = repaired.buffer(0)
+    return repaired
+
+
 def non_overlapping_outlook_fills(
     raw_geometries: dict[str, Any],
     order: tuple[str, ...],
@@ -1717,17 +1736,28 @@ def non_overlapping_outlook_fills(
     higher_union = None
     fill_labels = [label for label in order if label in raw_geometries and not label.startswith("CIG")]
     for label in reversed(fill_labels):
-        geometry = raw_geometries[label]
+        geometry = repaired_outlook_geometry(raw_geometries[label])
         if geometry.is_empty:
             continue
         fill_geometry = geometry
         if higher_union is not None and not higher_union.is_empty:
-            fill_geometry = fill_geometry.difference(higher_union)
-        if not fill_geometry.is_valid:
-            fill_geometry = fill_geometry.buffer(0)
+            try:
+                fill_geometry = fill_geometry.difference(higher_union)
+            except Exception:  # noqa: BLE001
+                fill_geometry = repaired_outlook_geometry(fill_geometry).difference(
+                    repaired_outlook_geometry(higher_union)
+                )
+        fill_geometry = repaired_outlook_geometry(fill_geometry)
         if not fill_geometry.is_empty:
             visible[label] = fill_geometry
-        higher_union = geometry if higher_union is None else unary_union((higher_union, geometry))
+        if higher_union is None:
+            higher_union = geometry
+            continue
+        try:
+            higher_union = unary_union((higher_union, geometry))
+        except Exception:  # noqa: BLE001
+            higher_union = unary_union((repaired_outlook_geometry(higher_union), geometry))
+        higher_union = repaired_outlook_geometry(higher_union)
     return visible
 
 
