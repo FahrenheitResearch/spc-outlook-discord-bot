@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import spc_outlook_bot as bot  # noqa: E402
-from shapely.geometry import Point  # noqa: E402
+from shapely.geometry import Point, Polygon  # noqa: E402
 
 
 DAY1_HTML = """
@@ -352,6 +352,21 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(geometry.contains(Point((-100.78, 46.81))))  # Bismarck
         self.assertTrue(geometry.contains(Point((-104.99, 39.74))))  # Denver
         self.assertTrue(geometry.contains(Point((-96.80, 32.78))))  # Dallas
+
+    def test_non_overlapping_outlook_fills_remove_higher_risk_from_lower_fill(self) -> None:
+        raw_geometries = {
+            "TSTM": Polygon(((0, 0), (4, 0), (4, 4), (0, 4))),
+            "SLGT": Polygon(((1, 1), (3, 1), (3, 3), (1, 3))),
+        }
+
+        visible = bot.non_overlapping_outlook_fills(raw_geometries, bot.RISK_ORDER)
+
+        self.assertIn("TSTM", visible)
+        self.assertIn("SLGT", visible)
+        self.assertAlmostEqual(visible["TSTM"].area, 12.0)
+        self.assertAlmostEqual(visible["SLGT"].area, 4.0)
+        self.assertFalse(visible["TSTM"].contains(Point((2, 2))))
+        self.assertTrue(visible["SLGT"].contains(Point((2, 2))))
 
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])

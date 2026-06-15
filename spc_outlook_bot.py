@@ -46,6 +46,7 @@ SPC_BASE = "https://www.spc.noaa.gov"
 USER_AGENT = "spc-outlook-bot/1.0 (+https://www.spc.noaa.gov/)"
 WATER_COLOR = "#6f9fca"
 LAND_COLOR = "#f8f3df"
+OUTLOOK_FILL_ALPHA = 0.72
 DEFAULT_IMAGE_SAFE_SCALE = 0.95
 MAP_EXTENT = (-125.0, -66.0, 24.0, 50.5)
 CONUS_MARINE_BOUNDARY_FILE = Path(__file__).resolve().with_name("assets") / "conus_marine_bnds.txt"
@@ -1673,6 +1674,63 @@ def geometry_parts(geometry: Any) -> Iterator[Any]:
             yield from geometry_parts(part)
 
 
+def outlook_geometry_for_label(
+    product: PtsProduct,
+    map_label: str,
+    label: str,
+    polygons: tuple[Any, ...],
+) -> Any | None:
+    from shapely.geometry import Polygon as ShapelyPolygon
+    from shapely.ops import unary_union
+
+    if not polygons:
+        return None
+    if product.source == "pts":
+        try:
+            return pts_sequences_to_geometry(polygons)
+        except Exception as exc:  # noqa: BLE001
+            log(f"{product.spec.name} {map_label} {label}: mature PTS polygonization failed: {exc}")
+            return None
+
+    geometries = []
+    for polygon_or_geometry in polygons:
+        if hasattr(polygon_or_geometry, "geom_type"):
+            geometry = polygon_or_geometry
+        else:
+            geometry = ShapelyPolygon(polygon_or_geometry)
+        if not geometry.is_valid:
+            geometry = geometry.buffer(0)
+        if not geometry.is_empty:
+            geometries.append(geometry)
+    if not geometries:
+        return None
+    return unary_union(geometries) if len(geometries) > 1 else geometries[0]
+
+
+def non_overlapping_outlook_fills(
+    raw_geometries: dict[str, Any],
+    order: tuple[str, ...],
+) -> dict[str, Any]:
+    from shapely.ops import unary_union
+
+    visible: dict[str, Any] = {}
+    higher_union = None
+    fill_labels = [label for label in order if label in raw_geometries and not label.startswith("CIG")]
+    for label in reversed(fill_labels):
+        geometry = raw_geometries[label]
+        if geometry.is_empty:
+            continue
+        fill_geometry = geometry
+        if higher_union is not None and not higher_union.is_empty:
+            fill_geometry = fill_geometry.difference(higher_union)
+        if not fill_geometry.is_valid:
+            fill_geometry = fill_geometry.buffer(0)
+        if not fill_geometry.is_empty:
+            visible[label] = fill_geometry
+        higher_union = geometry if higher_union is None else unary_union((higher_union, geometry))
+    return visible
+
+
 def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ...]], transform: Any) -> None:
     import matplotlib.patheffects as path_effects
     from shapely.geometry import Polygon as ShapelyPolygon
@@ -1784,11 +1842,11 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
 
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.colors import to_rgba
         from matplotlib.patches import Rectangle
 
         import cartopy.crs as ccrs
         import cartopy.feature as cfeature
-        from shapely.geometry import Polygon as ShapelyPolygon
     except Exception as exc:  # noqa: BLE001
         raise BotError(
             "custom preview rendering requires matplotlib and cartopy; "
@@ -1826,81 +1884,61 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     map_polygons = product.maps.get(map_label, {})
     order = preview_order_for_map(map_label)
     transform = ccrs.PlateCarree()
+    raw_geometries: dict[str, Any] = {}
     for label in order:
         polygons = map_polygons.get(label, ())
-        if product.source == "pts" and polygons:
-            _legend, face, edge = preview_style_for_label(map_label, label)
-            try:
-                geometry = pts_sequences_to_geometry(polygons)
-            except Exception as exc:  # noqa: BLE001
-                log(f"{product.spec.name} {map_label} {label}: mature PTS polygonization failed: {exc}")
-                geometry = None
-            if geometry is not None and not geometry.is_empty:
-                parts = [part for part in geometry_parts(geometry) if not part.is_empty and part.area > 0.01]
-                if parts:
-                    if label.startswith("CIG"):
-                        for part in parts:
-                            draw_cig_overlay(ax, part, label, transform)
-                    else:
-                        ax.add_geometries(
-                            parts,
-                            crs=transform,
-                            facecolor=face,
-                            edgecolor=edge,
-                            linewidth=2.2,
-                            alpha=0.46 if any(is_open_coordinate_sequence(item) for item in polygons) else 0.66,
-                            zorder=9 + order.index(label) if label in order else 9,
-                        )
+        geometry = outlook_geometry_for_label(product, map_label, label, polygons)
+        if geometry is not None and not geometry.is_empty:
+            raw_geometries[label] = geometry
+
+    visible_fills = non_overlapping_outlook_fills(raw_geometries, order)
+    for label in order:
+        if label.startswith("CIG"):
             continue
-        for polygon_or_geometry in polygons:
-            if product.source == "pts" and is_open_coordinate_sequence(polygon_or_geometry):
-                _legend, face, edge = preview_style_for_label(map_label, label)
-                points = list(polygon_or_geometry)
-                repaired = repaired_open_pts_geometry(points)
-                if repaired is not None:
-                    repaired_parts = [part for part in geometry_parts(repaired) if not part.is_empty and part.area > 0.01]
-                    if repaired_parts:
-                        ax.add_geometries(
-                            repaired_parts,
-                            crs=transform,
-                            facecolor=face,
-                            edgecolor=edge,
-                            linewidth=2.2,
-                            alpha=0.46,
-                            zorder=9 + order.index(label) if label in order else 9,
-                        )
-                ax.plot(
-                    [point[0] for point in points],
-                    [point[1] for point in points],
-                    transform=transform,
-                    color=edge,
-                    linewidth=2.35,
-                    alpha=0.88,
-                    solid_capstyle="round",
-                    zorder=28 + order.index(label) if label in order else 28,
-                )
-                continue
-            if hasattr(polygon_or_geometry, "geom_type"):
-                geometry = polygon_or_geometry
-            else:
-                geometry = ShapelyPolygon(polygon_or_geometry)
-            if not geometry.is_valid:
-                geometry = geometry.buffer(0)
-            if geometry.is_empty:
-                continue
-            if label.startswith("CIG"):
-                draw_cig_overlay(ax, geometry, label, transform)
-            else:
-                _legend, face, edge = preview_style_for_label(map_label, label)
-                ax.add_geometries(
-                    [geometry],
-                    crs=transform,
-                    facecolor=face,
-                    edgecolor=edge,
-                    linewidth=2.2,
-                    alpha=0.66,
-                    zorder=10 + order.index(label) if label in order else 10,
-                )
+        geometry = visible_fills.get(label)
+        if geometry is None or geometry.is_empty:
+            continue
+        _legend, face, _edge = preview_style_for_label(map_label, label)
+        parts = [part for part in geometry_parts(geometry) if not part.is_empty and part.area > 0.01]
+        if parts:
+            ax.add_geometries(
+                parts,
+                crs=transform,
+                facecolor=face,
+                edgecolor="none",
+                linewidth=0.0,
+                alpha=OUTLOOK_FILL_ALPHA,
+                zorder=9 + order.index(label) if label in order else 9,
+            )
+
+    for label in order:
+        if label.startswith("CIG"):
+            continue
+        geometry = raw_geometries.get(label)
+        if geometry is None or geometry.is_empty:
+            continue
+        _legend, _face, edge = preview_style_for_label(map_label, label)
+        parts = [part for part in geometry_parts(geometry) if not part.is_empty and part.area > 0.01]
+        if parts:
+            ax.add_geometries(
+                parts,
+                crs=transform,
+                facecolor="none",
+                edgecolor=edge,
+                linewidth=2.2,
+                alpha=0.94,
+                zorder=24 + order.index(label) if label in order else 24,
+            )
+
+    for label in order:
+        if not label.startswith("CIG"):
+            continue
+        geometry = raw_geometries.get(label)
+        if geometry is None or geometry.is_empty:
+            continue
+        for part in geometry_parts(geometry):
+            if not part.is_empty and part.area > 0.01:
+                draw_cig_overlay(ax, part, label, transform)
 
     ax.add_feature(states, linewidth=1.05, zorder=40)
     ax.add_feature(borders, linewidth=1.15, zorder=41)
@@ -2017,7 +2055,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             swatch_width,
             swatch_height,
             transform=legend_ax.transAxes,
-            facecolor=face,
+            facecolor=to_rgba(face, OUTLOOK_FILL_ALPHA) if not pattern else face,
             edgecolor=edge,
             linewidth=2.15,
         )
