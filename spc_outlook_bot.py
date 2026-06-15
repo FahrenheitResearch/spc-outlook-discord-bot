@@ -1830,6 +1830,20 @@ def non_overlapping_outlook_fills(
     return visible
 
 
+def visible_outlook_fills_for_map(
+    map_label: str,
+    raw_geometries: dict[str, Any],
+    order: tuple[str, ...],
+) -> dict[str, Any]:
+    if map_label == "categorical":
+        return {
+            label: repaired_outlook_geometry(raw_geometries[label])
+            for label in order
+            if label in raw_geometries and not label.startswith("CIG")
+        }
+    return non_overlapping_outlook_fills(raw_geometries, order)
+
+
 def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ...]], transform: Any) -> None:
     import matplotlib.patheffects as path_effects
     from shapely.geometry import Polygon as ShapelyPolygon
@@ -1990,7 +2004,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
         if geometry is not None and not geometry.is_empty:
             raw_geometries[label] = geometry
 
-    visible_fills = non_overlapping_outlook_fills(raw_geometries, order)
+    visible_fills = visible_outlook_fills_for_map(map_label, raw_geometries, order)
     for label in order:
         if label.startswith("CIG"):
             continue

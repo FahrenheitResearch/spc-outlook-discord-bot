@@ -404,6 +404,17 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(visible["TSTM"].contains(Point((2, 2))))
         self.assertTrue(visible["SLGT"].contains(Point((2, 2))))
 
+    def test_categorical_outlook_fills_keep_lower_risk_under_higher_risk(self) -> None:
+        raw_geometries = {
+            "MRGL": Polygon(((0, 0), (4, 0), (4, 4), (0, 4))),
+            "SLGT": Polygon(((1, 1), (3, 1), (3, 3), (1, 3))),
+        }
+
+        visible = bot.visible_outlook_fills_for_map("categorical", raw_geometries, bot.RISK_ORDER)
+
+        self.assertTrue(visible["MRGL"].contains(Point((2, 2))))
+        self.assertTrue(visible["SLGT"].contains(Point((2, 2))))
+
     def test_day48_pts_preserves_probability_labels(self) -> None:
         product = bot.parse_pts_text(PTS_DAY48_TEXT, bot.BUNDLES[3])
 
