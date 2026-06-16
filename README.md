@@ -247,4 +247,4 @@ To render every map the bot currently posts from the latest available SPC produc
 python tools/build_latest_plots_page.py --output-dir data/latest-plots --custom-source pts-only
 ```
 
-Open `data/latest-plots/index.html`, or serve that folder locally if your browser blocks `file://` images.
+The page also includes official SPC fire-weather and WPC excessive-rainfall outlook images so the local proof view covers the adjacent outlook products while custom renderers for those families are built. Open `data/latest-plots/index.html`, or serve that folder locally if your browser blocks `file://` images.
