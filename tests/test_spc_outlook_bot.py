@@ -698,6 +698,59 @@ class ParserTests(unittest.TestCase):
             self.assertIn(("handle", "official:day1:202606131630"), calls)
             self.assertFalse(runner.official_pending_for(spec, metadata))
 
+    def test_custom_first_polling_skips_official_when_no_followup_pending(self) -> None:
+        spec = bot.BUNDLES[0]
+        product = bot.parse_pts_text(PTS_DAY1_TEXT, spec)
+        metadata = bot.preview_snapshot_from_product(product)
+        runner = bot.OutlookBot.__new__(bot.OutlookBot)
+        runner.args = argparse.Namespace(
+            prepost_discussion=True,
+            message_content="link",
+            custom_source="pts-only",
+            render_mode="custom-first",
+            min_risk_level="any",
+            always_post_day48=False,
+            regional_maps="none",
+            regional_min_risk_level="enh",
+            regional_max_areas=0,
+            fetch_attempts=1,
+            fetch_retry_seconds=0,
+        )
+        runner.state = {"posted": {}}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            runner.state_path = Path(tmp_dir) / "state.json"
+            bot.mark_posted(
+                runner.state,
+                metadata,
+                mode="posted",
+                reason="already saw preview",
+                state_key="day1:preview",
+                post_key=runner.configured_post_key(metadata),
+            )
+
+            calls: list[tuple[str, str]] = []
+            original_bundles = bot.BUNDLES
+            original_fetch_raw = bot.fetch_raw_pts_text_for_spec
+            original_snapshot_with_retries = bot.snapshot_with_retries
+            try:
+                bot.BUNDLES = (spec,)
+                bot.fetch_raw_pts_text_for_spec = lambda _spec: PTS_DAY1_TEXT
+
+                def fake_snapshot_with_retries(_spec: bot.BundleSpec, attempts: int, delay: float) -> bot.BundleSnapshot:
+                    calls.append(("official_fetch", _spec.key))
+                    return metadata
+
+                bot.snapshot_with_retries = fake_snapshot_with_retries
+                runner.handle_snapshot = lambda snapshot, reason, **kwargs: calls.append(("handle", snapshot.product_id))
+
+                runner.refresh_all("poll", changed_only=True)
+            finally:
+                bot.BUNDLES = original_bundles
+                bot.fetch_raw_pts_text_for_spec = original_fetch_raw
+                bot.snapshot_with_retries = original_snapshot_with_retries
+
+            self.assertEqual([], calls)
+
     def test_preview_post_key_ignores_render_hash_changes(self) -> None:
         runner = bot.OutlookBot.__new__(bot.OutlookBot)
         runner.args = argparse.Namespace(min_risk_level="any", always_post_day48=False)

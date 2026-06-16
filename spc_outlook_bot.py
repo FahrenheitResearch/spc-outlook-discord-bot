@@ -3261,9 +3261,19 @@ class OutlookBot:
                             regional_max_areas=self.args.regional_max_areas,
                         )
                         official_metadata = dataclasses.replace(preview, images=())
-                        if changed_only and bundle_is_posted(self.state, preview, state_key=preview_key):
+                        if changed_only and bundle_is_posted(
+                            self.state,
+                            preview,
+                            state_key=preview_key,
+                            post_key=self.configured_post_key(preview),
+                        ):
                             official_followup_due = self.official_pending_for(spec, official_metadata)
-                    preview_needs_handle = not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key)
+                    preview_needs_handle = not changed_only or not bundle_is_posted(
+                        self.state,
+                        preview,
+                        state_key=preview_key,
+                        post_key=self.configured_post_key(preview),
+                    )
                     if preview_needs_handle:
                         self.handle_snapshot(
                             preview,
