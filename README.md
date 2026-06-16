@@ -238,3 +238,13 @@ python tools/validate_day1_archive.py --output-dir data/day1-polygon-smoke \
 ```
 
 The validator filters Day 1 outlooks to ENH/MDT/HIGH products, fetches official archive images for local comparison, renders the bot's custom maps from archived SPC GeoJSON or shapefiles, and writes `index.html`, `summary.json`, and `manifest.json` under the output directory. Keep these outputs in `data/`; they are intentionally ignored by git.
+
+### Latest Plot Page
+
+To render every map the bot currently posts from the latest available SPC products:
+
+```bash
+python tools/build_latest_plots_page.py --output-dir data/latest-plots --custom-source pts-only
+```
+
+Open `data/latest-plots/index.html`, or serve that folder locally if your browser blocks `file://` images.
