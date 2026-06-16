@@ -3024,6 +3024,39 @@ class OutlookBot:
             return None
         return preview_snapshot_from_product(product)
 
+    def snapshot_passes_configured_filter(self, snapshot: BundleSnapshot) -> bool:
+        passes_filter, _filter_reason = snapshot_passes_risk_filter(
+            snapshot,
+            min_risk_level=self.args.min_risk_level,
+            always_post_day48=self.args.always_post_day48,
+        )
+        return passes_filter
+
+    def official_pending_for(self, spec: BundleSpec, metadata: BundleSnapshot | None = None) -> bool:
+        pending = self.state.setdefault("pending_official", {})
+        entry = pending.get(spec.key)
+        if not isinstance(entry, dict):
+            return False
+        if metadata is None:
+            return True
+        return entry.get("preview_post_key") == self.configured_post_key(metadata)
+
+    def mark_official_pending(self, metadata: BundleSnapshot) -> None:
+        pending = self.state.setdefault("pending_official", {})
+        pending[metadata.spec.key] = {
+            "preview_post_key": self.configured_post_key(metadata),
+            "product_id": metadata.product_id,
+            "updated": metadata.updated,
+            "at": utc_now_iso(),
+        }
+        save_state(self.state_path, self.state)
+
+    def clear_official_pending(self, spec: BundleSpec) -> None:
+        pending = self.state.setdefault("pending_official", {})
+        if spec.key in pending:
+            pending.pop(spec.key, None)
+            save_state(self.state_path, self.state)
+
     def start_nwws_if_requested(self) -> None:
         if not self.args.autostart_nwws:
             return
@@ -3190,6 +3223,7 @@ class OutlookBot:
         for spec in BUNDLES:
             try:
                 official_metadata: BundleSnapshot | None = None
+                official_followup_due = not changed_only or not render_mode_posts_preview(self.args.render_mode)
                 if render_mode_posts_preview(self.args.render_mode):
                     preview_key = f"{spec.key}:preview"
                     preposted = False
@@ -3203,6 +3237,7 @@ class OutlookBot:
                             log(f"{metadata.spec.name}: unchanged ({metadata.product_id})")
                             if not render_mode_posts_official(self.args.render_mode):
                                 continue
+                            official_followup_due = self.official_pending_for(spec, metadata)
                             preview = metadata
                             preposted = True
                         else:
@@ -3226,7 +3261,10 @@ class OutlookBot:
                             regional_max_areas=self.args.regional_max_areas,
                         )
                         official_metadata = dataclasses.replace(preview, images=())
-                    if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
+                        if changed_only and bundle_is_posted(self.state, preview, state_key=preview_key):
+                            official_followup_due = self.official_pending_for(spec, official_metadata)
+                    preview_needs_handle = not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key)
+                    if preview_needs_handle:
                         self.handle_snapshot(
                             preview,
                             f"{reason}:preview",
@@ -3234,7 +3272,16 @@ class OutlookBot:
                             state_key=preview_key,
                             include_discussion=not preposted,
                         )
+                        if (
+                            render_mode_posts_official(self.args.render_mode)
+                            and not prime_only
+                            and self.snapshot_passes_configured_filter(official_metadata or dataclasses.replace(preview, images=()))
+                        ):
+                            self.mark_official_pending(official_metadata or dataclasses.replace(preview, images=()))
+                            official_followup_due = True
                 if render_mode_posts_official(self.args.render_mode):
+                    if not official_followup_due:
+                        continue
                     if official_metadata is None:
                         official_metadata = self.official_risk_metadata(spec)
                     snapshot = snapshot_with_retries(
@@ -3244,8 +3291,10 @@ class OutlookBot:
                     )
                     snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
                     if changed_only and bundle_is_posted(self.state, snapshot):
+                        self.clear_official_pending(spec)
                         continue
                     self.handle_snapshot(snapshot, reason, prime_only=prime_only)
+                    self.clear_official_pending(spec)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: {exc}")
 
@@ -3291,6 +3340,11 @@ class OutlookBot:
                         state_key=f"{spec.key}:preview",
                         include_discussion=not preposted,
                     )
+                    if (
+                        render_mode_posts_official(self.args.render_mode)
+                        and self.snapshot_passes_configured_filter(official_metadata or dataclasses.replace(preview, images=()))
+                    ):
+                        self.mark_official_pending(official_metadata or dataclasses.replace(preview, images=()))
                 if render_mode_posts_official(self.args.render_mode):
                     if official_metadata is None:
                         pts_text = (
@@ -3306,6 +3360,7 @@ class OutlookBot:
                     )
                     snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
                     self.handle_snapshot(snapshot, reason)
+                    self.clear_official_pending(spec)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: trigger refresh failed: {exc}")
 

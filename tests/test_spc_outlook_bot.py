@@ -634,7 +634,7 @@ class ParserTests(unittest.TestCase):
             bot.snapshot_passes_risk_filter(merged, min_risk_level="enh", always_post_day48=False)[0]
         )
 
-    def test_custom_first_polling_still_checks_official_when_preview_seen(self) -> None:
+    def test_custom_first_polling_checks_pending_official_when_preview_seen(self) -> None:
         spec = bot.BUNDLES[0]
         product = bot.parse_pts_text(PTS_DAY1_TEXT, spec)
         metadata = bot.preview_snapshot_from_product(product)
@@ -653,46 +653,50 @@ class ParserTests(unittest.TestCase):
             fetch_retry_seconds=0,
         )
         runner.state = {"posted": {}}
-        bot.mark_posted(
-            runner.state,
-            metadata,
-            mode="posted",
-            reason="already saw preview",
-            state_key="day1:preview",
-            post_key=runner.configured_post_key(metadata),
-        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            runner.state_path = Path(tmp_dir) / "state.json"
+            bot.mark_posted(
+                runner.state,
+                metadata,
+                mode="posted",
+                reason="already saw preview",
+                state_key="day1:preview",
+                post_key=runner.configured_post_key(metadata),
+            )
+            runner.mark_official_pending(metadata)
 
-        official = bot.BundleSnapshot(
-            spec=spec,
-            title="Official Day 1",
-            updated=metadata.updated,
-            product_id="official:day1:202606131630",
-            page_url=spec.page_url,
-            images=(),
-        )
-        calls: list[tuple[str, str]] = []
-        original_bundles = bot.BUNDLES
-        original_fetch_raw = bot.fetch_raw_pts_text_for_spec
-        original_snapshot_with_retries = bot.snapshot_with_retries
-        try:
-            bot.BUNDLES = (spec,)
-            bot.fetch_raw_pts_text_for_spec = lambda _spec: PTS_DAY1_TEXT
+            official = bot.BundleSnapshot(
+                spec=spec,
+                title="Official Day 1",
+                updated=metadata.updated,
+                product_id="official:day1:202606131630",
+                page_url=spec.page_url,
+                images=(),
+            )
+            calls: list[tuple[str, str]] = []
+            original_bundles = bot.BUNDLES
+            original_fetch_raw = bot.fetch_raw_pts_text_for_spec
+            original_snapshot_with_retries = bot.snapshot_with_retries
+            try:
+                bot.BUNDLES = (spec,)
+                bot.fetch_raw_pts_text_for_spec = lambda _spec: PTS_DAY1_TEXT
 
-            def fake_snapshot_with_retries(_spec: bot.BundleSpec, attempts: int, delay: float) -> bot.BundleSnapshot:
-                calls.append(("official_fetch", _spec.key))
-                return official
+                def fake_snapshot_with_retries(_spec: bot.BundleSpec, attempts: int, delay: float) -> bot.BundleSnapshot:
+                    calls.append(("official_fetch", _spec.key))
+                    return official
 
-            bot.snapshot_with_retries = fake_snapshot_with_retries
-            runner.handle_snapshot = lambda snapshot, reason, **kwargs: calls.append(("handle", snapshot.product_id))
+                bot.snapshot_with_retries = fake_snapshot_with_retries
+                runner.handle_snapshot = lambda snapshot, reason, **kwargs: calls.append(("handle", snapshot.product_id))
 
-            runner.refresh_all("poll", changed_only=True)
-        finally:
-            bot.BUNDLES = original_bundles
-            bot.fetch_raw_pts_text_for_spec = original_fetch_raw
-            bot.snapshot_with_retries = original_snapshot_with_retries
+                runner.refresh_all("poll", changed_only=True)
+            finally:
+                bot.BUNDLES = original_bundles
+                bot.fetch_raw_pts_text_for_spec = original_fetch_raw
+                bot.snapshot_with_retries = original_snapshot_with_retries
 
-        self.assertIn(("official_fetch", "day1"), calls)
-        self.assertIn(("handle", "official:day1:202606131630"), calls)
+            self.assertIn(("official_fetch", "day1"), calls)
+            self.assertIn(("handle", "official:day1:202606131630"), calls)
+            self.assertFalse(runner.official_pending_for(spec, metadata))
 
     def test_preview_post_key_ignores_render_hash_changes(self) -> None:
         runner = bot.OutlookBot.__new__(bot.OutlookBot)
