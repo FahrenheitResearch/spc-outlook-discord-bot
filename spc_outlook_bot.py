@@ -2803,12 +2803,18 @@ def discord_discussion_embed(snapshot: BundleSnapshot) -> dict[str, Any] | None:
     if snapshot.issued:
         fields.append({"name": "Issued", "value": snapshot.issued, "inline": True})
     fields.append({"name": "Source", "value": "NOAA/NWS Storm Prediction Center raw text", "inline": False})
+    official_images = bool(snapshot.images) and all(image.url.startswith(SPC_BASE) for image in snapshot.images)
+    footer_text = (
+        "Official SPC image files - notification by Outlook Notification"
+        if official_images
+        else "Unofficial Yalllooks render - not an official SPC/NWS graphic"
+    )
     embed: dict[str, Any] = {
         "title": f"{snapshot.spec.name} - Discussion",
         "description": description or None,
         "color": 0xF4D03F,
         "fields": fields,
-        "footer": {"text": "Unofficial Yalllooks render - not an official SPC/NWS graphic"},
+        "footer": {"text": footer_text},
     }
     return {key: value for key, value in embed.items() if value is not None}
 
@@ -2964,6 +2970,22 @@ def snapshot_with_retries(spec: BundleSpec, attempts: int, delay: float) -> Bund
     raise BotError(f"{spec.name}: failed after {attempts} attempts: {last_error}") from last_error
 
 
+def merge_official_snapshot_metadata(
+    official: BundleSnapshot,
+    metadata: BundleSnapshot | None,
+) -> BundleSnapshot:
+    if metadata is None:
+        return official
+    return dataclasses.replace(
+        official,
+        risk_labels=metadata.risk_labels or official.risk_labels,
+        issued=metadata.issued or official.issued,
+        valid=metadata.valid or official.valid,
+        discussion=metadata.discussion or official.discussion,
+        discussion_url=metadata.discussion_url or official.discussion_url,
+    )
+
+
 class OutlookBot:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -2993,6 +3015,14 @@ class OutlookBot:
             and self.args.custom_source == "pts-only"
             and render_mode_posts_preview(self.args.render_mode)
         )
+
+    def official_risk_metadata(self, spec: BundleSpec, pts_text: str | None = None) -> BundleSnapshot | None:
+        try:
+            product = choose_custom_product(spec, pts_text, self.args.custom_source)
+        except Exception as exc:  # noqa: BLE001 - official images can still be posted without the filter metadata.
+            log(f"{spec.name}: could not load official risk metadata: {exc}")
+            return None
+        return preview_snapshot_from_product(product)
 
     def start_nwws_if_requested(self) -> None:
         if not self.args.autostart_nwws:
@@ -3159,6 +3189,7 @@ class OutlookBot:
     def refresh_all(self, reason: str, *, prime_only: bool = False, changed_only: bool = False) -> None:
         for spec in BUNDLES:
             try:
+                official_metadata: BundleSnapshot | None = None
                 if render_mode_posts_preview(self.args.render_mode):
                     preview_key = f"{spec.key}:preview"
                     preposted = False
@@ -3166,6 +3197,7 @@ class OutlookBot:
                         pts_text = fetch_raw_pts_text_for_spec(spec)
                         product = choose_custom_product(spec, pts_text, self.args.custom_source)
                         metadata = preview_snapshot_from_product(product)
+                        official_metadata = metadata
                         post_key = self.configured_post_key(metadata)
                         if changed_only and bundle_is_posted(self.state, metadata, state_key=preview_key, post_key=post_key):
                             log(f"{metadata.spec.name}: unchanged ({metadata.product_id})")
@@ -3189,6 +3221,7 @@ class OutlookBot:
                             regional_min_risk_level=self.args.regional_min_risk_level,
                             regional_max_areas=self.args.regional_max_areas,
                         )
+                        official_metadata = dataclasses.replace(preview, images=())
                     if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
                         self.handle_snapshot(
                             preview,
@@ -3198,11 +3231,14 @@ class OutlookBot:
                             include_discussion=not preposted,
                         )
                 if render_mode_posts_official(self.args.render_mode):
+                    if official_metadata is None:
+                        official_metadata = self.official_risk_metadata(spec)
                     snapshot = snapshot_with_retries(
                         spec,
                         attempts=self.args.fetch_attempts,
                         delay=self.args.fetch_retry_seconds,
                     )
+                    snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
                     if changed_only and bundle_is_posted(self.state, snapshot):
                         continue
                     self.handle_snapshot(snapshot, reason, prime_only=prime_only)
@@ -3214,6 +3250,7 @@ class OutlookBot:
         specs = matched or list(BUNDLES)
         for spec in specs:
             try:
+                official_metadata: BundleSnapshot | None = None
                 if render_mode_posts_preview(self.args.render_mode):
                     pts_text = (
                         raw_bulletin
@@ -3226,6 +3263,7 @@ class OutlookBot:
                             pts_text = fetch_raw_pts_text_for_spec(spec)
                         product = choose_custom_product(spec, pts_text, self.args.custom_source)
                         metadata = preview_snapshot_from_product(product)
+                        official_metadata = metadata
                         preposted = self.prepost_discussion(metadata, f"{reason}:preview")
                         preview = render_product_bundle(
                             product,
@@ -3242,6 +3280,7 @@ class OutlookBot:
                             regional_min_risk_level=self.args.regional_min_risk_level,
                             regional_max_areas=self.args.regional_max_areas,
                         )
+                        official_metadata = dataclasses.replace(preview, images=())
                     self.handle_snapshot(
                         preview,
                         f"{reason}:preview",
@@ -3249,11 +3288,19 @@ class OutlookBot:
                         include_discussion=not preposted,
                     )
                 if render_mode_posts_official(self.args.render_mode):
+                    if official_metadata is None:
+                        pts_text = (
+                            raw_bulletin
+                            if awips_id.upper().startswith("PTS") and raw_bulletin and raw_bulletin.strip()
+                            else None
+                        )
+                        official_metadata = self.official_risk_metadata(spec, pts_text)
                     snapshot = snapshot_with_retries(
                         spec,
                         attempts=max(self.args.fetch_attempts, self.args.trigger_fetch_attempts),
                         delay=self.args.fetch_retry_seconds,
                     )
+                    snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
                     self.handle_snapshot(snapshot, reason)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: trigger refresh failed: {exc}")

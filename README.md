@@ -60,6 +60,19 @@ That path does not wait for SPC's finished web PNG/GIF plot images. On the local
 
 Official-image mode is bounded by SPC web image availability. In a June 2026 spot check, the official image files commonly appeared several minutes after the outlook text product, with the sampled average around 8.5 minutes. GeoJSON publication can still have a short SPC-side publish gap; `geojson-first` can reduce that gap by using newer raw PTS, and `pts-only` is the fastest raw-text path.
 
+To post the literal unmodified SPC web graphics with the SPC/NOAA logo already in the official image, use official-image mode and let the raw outlook metadata handle ENH+ filtering:
+
+```text
+SPC_RENDER_MODE=official-only
+SPC_CUSTOM_SOURCE=pts-only
+SPC_MIN_RISK_LEVEL=enh
+SPC_FETCH_RETRY_SECONDS=1
+SPC_TRIGGER_FETCH_ATTEMPTS=90
+SPC_MESSAGE_CONTENT=link
+```
+
+This still cannot beat SPC image publication, but after a `PTS` trigger it will check for the finished official images once per second for up to 90 seconds. If the official graphics are available about 30 seconds after the raw product, this mode should post them within roughly the next polling tick.
+
 Fallback path:
 
 - If NWWS is unavailable, the bot polls the SPC outlook pages directly.

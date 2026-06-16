@@ -605,6 +605,35 @@ class ParserTests(unittest.TestCase):
             bot.snapshot_passes_risk_filter(day48_snapshot, min_risk_level="enh", always_post_day48=True)[0]
         )
 
+    def test_official_snapshot_inherits_risk_metadata_for_filtering(self) -> None:
+        image = bot.MapImage("categorical", "official.png", "official.png", "image/png", "abc", b"abc")
+        official = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Official Day 1",
+            updated="2026-06-16 1630Z",
+            product_id="official:day1:202606161630",
+            page_url=bot.BUNDLES[0].page_url,
+            images=(image,),
+        )
+        metadata = dataclasses.replace(
+            official,
+            product_id="preview:PTSDY1:202606161630",
+            images=(),
+            risk_labels=("ENH",),
+            issued="1130 AM CDT TUE JUN 16 2026",
+            valid="161630Z - 171200Z",
+        )
+
+        merged = bot.merge_official_snapshot_metadata(official, metadata)
+
+        self.assertEqual(merged.product_id, official.product_id)
+        self.assertEqual(merged.images, official.images)
+        self.assertEqual(merged.risk_labels, ("ENH",))
+        self.assertEqual(merged.valid, "161630Z - 171200Z")
+        self.assertTrue(
+            bot.snapshot_passes_risk_filter(merged, min_risk_level="enh", always_post_day48=False)[0]
+        )
+
     def test_preview_post_key_ignores_render_hash_changes(self) -> None:
         runner = bot.OutlookBot.__new__(bot.OutlookBot)
         runner.args = argparse.Namespace(min_risk_level="any", always_post_day48=False)
