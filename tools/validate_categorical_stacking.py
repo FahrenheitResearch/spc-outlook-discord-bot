@@ -15,6 +15,9 @@ if str(ROOT) not in sys.path:
 import spc_outlook_bot as bot  # noqa: E402
 
 
+RISK_AREA_TOLERANCE = 1.05
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -45,6 +48,28 @@ def safe_intersection_area(left: object, right: object) -> float:
     return bot.repaired_outlook_geometry(left.intersection(right)).area
 
 
+def closed_sequence_reference_area(sequences: tuple[object, ...]) -> float | None:
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+
+    geometries = []
+    for sequence in sequences:
+        if hasattr(sequence, "geom_type"):
+            return None
+        points = [tuple(point) for point in sequence if isinstance(point, tuple | list) and len(point) >= 2]
+        if len(points) < 4 or points[0] != points[-1]:
+            return None
+        polygon = Polygon(points)
+        if not polygon.is_valid:
+            polygon = polygon.buffer(0)
+        if not polygon.is_empty:
+            geometries.append(polygon)
+    if not geometries:
+        return None
+    geometry = unary_union(geometries) if len(geometries) > 1 else geometries[0]
+    return abs(geometry.area)
+
+
 def validate_spec(spec: bot.BundleSpec, *, min_overlap_area: float, min_visible_ratio: float) -> list[str]:
     product = bot.parse_pts_text(bot.fetch_raw_pts_text_for_spec(spec), spec)
     raw_polygons = product.maps.get("categorical", {})
@@ -57,6 +82,17 @@ def validate_spec(spec: bot.BundleSpec, *, min_overlap_area: float, min_visible_
     visible = bot.visible_outlook_fills_for_map("categorical", raw_geometries, bot.RISK_ORDER)
     failures: list[str] = []
     comparisons = 0
+    for label, visible_geometry in visible.items():
+        reference_area = closed_sequence_reference_area(raw_polygons.get(label, ()))
+        if reference_area is None or reference_area < min_overlap_area:
+            continue
+        visible_area = visible_geometry.area
+        allowed_area = max(reference_area * RISK_AREA_TOLERANCE, reference_area + min_overlap_area)
+        if visible_area > allowed_area:
+            failures.append(
+                f"{spec.key} {product.product_id}: {label} visible fill area {visible_area:.2f} "
+                f"exceeds closed-ring source area {reference_area:.2f}"
+            )
     for lower_index, lower_label in enumerate(bot.RISK_ORDER[:-1]):
         lower = raw_geometries.get(lower_label)
         visible_lower = visible.get(lower_label)

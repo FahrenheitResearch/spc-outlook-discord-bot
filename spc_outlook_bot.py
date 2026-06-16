@@ -1657,7 +1657,7 @@ def cig_hatch_lines(geometry: Any, slope: float) -> list[Any]:
     min_x, min_y, max_x, max_y = geometry.bounds
     span = max(max_x - min_x, max_y - min_y, 1.0)
     pad = max(2.0, span * 0.35)
-    spacing = 0.72
+    spacing = 0.42
     x0 = min_x - pad
     x1 = max_x + pad
     b_min = (min_y - pad) - slope * x1
@@ -1710,7 +1710,7 @@ def draw_cig_legend_symbol(ax: Any, rect: Any, pattern: str) -> None:
         "cig3": ((0.50, "solid"), (-0.50, "solid")),
     }.get(pattern, ((0.50, (0, (5.5, 3.5))),))
     for slope, line_style in specs:
-        step = width * 0.28
+        step = width * 0.20
         start = x - width
         end = x + width * 2.0
         cursor = start
