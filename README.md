@@ -179,6 +179,9 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 | `SPC_IMAGE_SAFE_SCALE` | `0.95` | Shrinks custom maps inside the PNG canvas so Discord attachment previews crop less. Use `1.0` to disable. |
 | `SPC_MIN_RISK_LEVEL` | `any` | Optional Day 1-3 custom bundle filter. Use `enh` for Enhanced-or-higher posts only. |
 | `SPC_ALWAYS_POST_DAY48` | `0` | With risk filtering enabled, still post any Day 4-8 outlook with a 15% or 30% area. |
+| `SPC_REGIONAL_MAPS` | `categorical,day4-8` | Adds regional auto-zoom maps for selected custom maps. Use `none` to disable or `all` to zoom every rendered map. |
+| `SPC_REGIONAL_MIN_RISK_LEVEL` | `enh` | Minimum categorical risk used to select Day 1-3 regional zoom centers. |
+| `SPC_REGIONAL_MAX_AREAS` | `2` | Maximum regional zoom images per enabled map. If two ENH+ blobs are separated, the bot can post two regional maps. |
 | `SPC_MESSAGE_CONTENT` | `none` | `none`, `link`, `short`, or `debug`. `link` adds a raw `SWODY*` discussion embed and `View Discussion` button above the images. |
 | `SPC_PREPOST_DISCUSSION` | `0` | In `pts-only` + `link` mode, post the raw `SWODY*` discussion card before rendering maps, then post the image bundle as a follow-up. |
 | `SPC_POLL_SECONDS` | `20` | Direct SPC fallback poll cadence. |
@@ -197,7 +200,7 @@ http://127.0.0.1:8080/v1/stream?office=KWNS&pil=SWO
 
 - Keep `.env` private. It contains your Discord webhook.
 - The bot writes runtime files under `data/`, which is ignored by git.
-- Discord webhooks currently allow enough attachments for each bundle; the largest bundle here is six images.
+- Discord allows up to 10 file attachments per message. Larger custom bundles are split across multiple webhook messages automatically.
 - The first custom render may download/cache Cartopy Natural Earth map files. The default startup prime helps warm that before a live post.
 - If NWWS is down, direct SPC polling keeps running.
 - If SPC changes its page or PTS structure, CI tests cover the parser contract, and runtime logs will say which bundle failed.

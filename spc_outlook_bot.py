@@ -49,6 +49,10 @@ LAND_COLOR = "#f8f3df"
 OUTLOOK_FILL_ALPHA = 0.72
 DEFAULT_IMAGE_SAFE_SCALE = 0.95
 MAP_EXTENT = (-125.0, -66.0, 24.0, 50.5)
+DISCORD_MAX_FILES_PER_MESSAGE = 10
+DEFAULT_REGIONAL_MAPS = "categorical,day4-8"
+DEFAULT_REGIONAL_MIN_RISK_LEVEL = "enh"
+DEFAULT_REGIONAL_MAX_AREAS = 2
 CONUS_MARINE_BOUNDARY_FILE = Path(__file__).resolve().with_name("assets") / "conus_marine_bnds.txt"
 DEFAULT_SSE_URLS = (
     "http://127.0.0.1:8080/v1/stream?office=KWNS&pil=PTS,"
@@ -125,6 +129,14 @@ class PtsProduct:
     maps: dict[str, dict[str, tuple[tuple[tuple[float, float], ...], ...]]]
     discussion: str = ""
     discussion_url: str = ""
+
+
+@dataclasses.dataclass(frozen=True)
+class MapRenderView:
+    map_label: str
+    suffix: str = ""
+    title_suffix: str = ""
+    extent: tuple[float, float, float, float] = MAP_EXTENT
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1600,10 +1612,27 @@ def allowed_cig_labels_for_map(map_label: str) -> tuple[str, ...]:
     return ()
 
 
-def draw_major_city_labels(ax: Any, transform: Any) -> None:
+def draw_major_city_labels(
+    ax: Any,
+    transform: Any,
+    extent: tuple[float, float, float, float] | None = None,
+) -> None:
     import matplotlib.patheffects as path_effects
 
     for name, lon, lat, dx, dy in MAJOR_CITY_LABELS:
+        if extent is not None:
+            lon0, lon1, lat0, lat1 = extent
+            lon_margin = max(1.15, (lon1 - lon0) * 0.075)
+            lat_margin = max(0.55, (lat1 - lat0) * 0.055)
+            label_lon = lon + dx
+            label_lat = lat + dy
+            if not (
+                lon0 + lon_margin <= lon <= lon1 - lon_margin
+                and lat0 + lat_margin <= lat <= lat1 - lat_margin
+                and lon0 + lon_margin <= label_lon <= lon1 - lon_margin
+                and lat0 + lat_margin <= label_lat <= lat1 - lat_margin
+            ):
+                continue
         ax.scatter(
             [lon],
             [lat],
@@ -1776,6 +1805,17 @@ def outlook_geometry_for_label(
     return unary_union(geometries) if len(geometries) > 1 else geometries[0]
 
 
+def raw_geometries_for_map(product: PtsProduct, map_label: str) -> dict[str, Any]:
+    map_polygons = product.maps.get(map_label, {})
+    geometries: dict[str, Any] = {}
+    for label in preview_order_for_map(map_label):
+        polygons = map_polygons.get(label, ())
+        geometry = outlook_geometry_for_label(product, map_label, label, polygons)
+        if geometry is not None and not geometry.is_empty:
+            geometries[label] = geometry
+    return geometries
+
+
 def repaired_outlook_geometry(geometry: Any) -> Any:
     if geometry is None or geometry.is_empty:
         return geometry
@@ -1842,6 +1882,191 @@ def visible_outlook_fills_for_map(
             if label in raw_geometries and not label.startswith("CIG")
         }
     return non_overlapping_outlook_fills(raw_geometries, order)
+
+
+def parse_regional_map_config(value: str | None, expected_order: tuple[str, ...]) -> set[str]:
+    if value is None:
+        value = DEFAULT_REGIONAL_MAPS
+    aliases = {
+        "cat": "categorical",
+        "category": "categorical",
+        "prob": "probabilistic",
+        "day48": "day4-8",
+        "d48": "day4-8",
+    }
+    tokens = {
+        aliases.get(token.strip().lower(), token.strip().lower())
+        for token in value.split(",")
+        if token.strip()
+    }
+    if not tokens or tokens & {"none", "off", "false", "0"}:
+        return set()
+    if "all" in tokens:
+        return set(expected_order)
+    return {token for token in tokens if token in expected_order}
+
+
+def regional_focus_geometries_for_map(
+    map_label: str,
+    raw_geometries: dict[str, Any],
+    min_risk_level: str,
+) -> list[Any]:
+    if map_label == "categorical":
+        threshold = RISK_RANK.get(min_risk_level.upper(), RISK_RANK["ENH"])
+        return [
+            raw_geometries[label]
+            for label in RISK_ORDER
+            if RISK_RANK[label] >= threshold and label in raw_geometries
+        ]
+
+    if is_day48_probability_map(map_label):
+        for label in reversed(DAY48_PROB_ORDER):
+            if label in raw_geometries:
+                return [raw_geometries[label]]
+        return []
+
+    for label in reversed(CIG_ORDER):
+        if label in raw_geometries:
+            return [raw_geometries[label]]
+
+    prob_order = SEVERE_PROB_ORDER if map_label in {"wind", "hail", "probabilistic"} else PROB_ORDER
+    for label in reversed(prob_order):
+        if label in raw_geometries:
+            return [raw_geometries[label]]
+    return []
+
+
+def clamp_extent(extent: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+    min_lon, max_lon, min_lat, max_lat = MAP_EXTENT
+    lon0, lon1, lat0, lat1 = extent
+    width = min(max(lon1 - lon0, 1.0), max_lon - min_lon)
+    height = min(max(lat1 - lat0, 1.0), max_lat - min_lat)
+    center_lon = min(max((lon0 + lon1) / 2, min_lon + width / 2), max_lon - width / 2)
+    center_lat = min(max((lat0 + lat1) / 2, min_lat + height / 2), max_lat - height / 2)
+    return (
+        center_lon - width / 2,
+        center_lon + width / 2,
+        center_lat - height / 2,
+        center_lat + height / 2,
+    )
+
+
+def regional_extent_for_geometry(geometry: Any) -> tuple[float, float, float, float]:
+    min_lon, min_lat, max_lon, max_lat = geometry.bounds
+    span_lon = max_lon - min_lon
+    span_lat = max_lat - min_lat
+    width = max(14.0, span_lon * 1.70)
+    height = max(9.5, span_lat * 1.85)
+    aspect = 1.68
+    if width / height < aspect:
+        width = height * aspect
+    else:
+        height = width / aspect
+    center_lon = (min_lon + max_lon) / 2
+    center_lat = (min_lat + max_lat) / 2
+    return clamp_extent(
+        (
+            center_lon - width / 2,
+            center_lon + width / 2,
+            center_lat - height / 2,
+            center_lat + height / 2,
+        )
+    )
+
+
+def extent_overlap_ratio(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    lon0 = max(first[0], second[0])
+    lon1 = min(first[1], second[1])
+    lat0 = max(first[2], second[2])
+    lat1 = min(first[3], second[3])
+    if lon1 <= lon0 or lat1 <= lat0:
+        return 0.0
+    overlap = (lon1 - lon0) * (lat1 - lat0)
+    first_area = (first[1] - first[0]) * (first[3] - first[2])
+    second_area = (second[1] - second[0]) * (second[3] - second[2])
+    return overlap / max(1e-6, min(first_area, second_area))
+
+
+def regional_render_views(
+    product: PtsProduct,
+    map_label: str,
+    *,
+    regional_maps: str,
+    regional_min_risk_level: str,
+    regional_max_areas: int,
+) -> list[MapRenderView]:
+    if regional_max_areas <= 0:
+        return []
+    enabled = parse_regional_map_config(regional_maps, product.spec.expected_order)
+    if map_label not in enabled:
+        return []
+
+    from shapely.ops import unary_union
+
+    focus_geometries = [
+        repaired_outlook_geometry(geometry)
+        for geometry in regional_focus_geometries_for_map(
+            map_label,
+            raw_geometries_for_map(product, map_label),
+            regional_min_risk_level,
+        )
+    ]
+    focus_geometries = [geometry for geometry in focus_geometries if geometry is not None and not geometry.is_empty]
+    if not focus_geometries:
+        return []
+
+    merged = unary_union(focus_geometries) if len(focus_geometries) > 1 else focus_geometries[0]
+    parts = [
+        repaired_outlook_geometry(part)
+        for part in geometry_parts(merged)
+        if not part.is_empty and part.area >= 0.04
+    ]
+    parts.sort(key=lambda part: part.area, reverse=True)
+
+    views: list[MapRenderView] = []
+    extents: list[tuple[float, float, float, float]] = []
+    for part in parts:
+        extent = regional_extent_for_geometry(part)
+        if any(extent_overlap_ratio(extent, existing) > 0.82 for existing in extents):
+            continue
+        index = len(views) + 1
+        views.append(
+            MapRenderView(
+                map_label=map_label,
+                suffix=f"regional_{index}",
+                title_suffix=f"Regional {index}",
+                extent=extent,
+            )
+        )
+        extents.append(extent)
+        if len(views) >= regional_max_areas:
+            break
+    return views
+
+
+def render_views_for_product(
+    product: PtsProduct,
+    *,
+    regional_maps: str,
+    regional_min_risk_level: str,
+    regional_max_areas: int,
+) -> list[MapRenderView]:
+    views: list[MapRenderView] = []
+    for map_label in product.spec.expected_order:
+        views.append(MapRenderView(map_label=map_label))
+        views.extend(
+            regional_render_views(
+                product,
+                map_label,
+                regional_maps=regional_maps,
+                regional_min_risk_level=regional_min_risk_level,
+                regional_max_areas=regional_max_areas,
+            )
+        )
+    return views
 
 
 def draw_day48_probability_labels(ax: Any, map_polygons: dict[str, tuple[Any, ...]], transform: Any) -> None:
@@ -1949,7 +2174,7 @@ def preview_source_badge(product: PtsProduct) -> str:
     return "UNOFFICIAL FAST RENDER"
 
 
-def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
+def render_pts_map_png(product: PtsProduct, map_label: str, view: MapRenderView | None = None) -> bytes:
     try:
         import matplotlib
 
@@ -1973,8 +2198,11 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
         central_latitude=35.0,
         standard_parallels=(33.0, 45.0),
     )
+    view = view or MapRenderView(map_label=map_label)
     ax = fig.add_axes([0.0, 0.13, 1.0, 0.87], projection=projection)
-    ax.set_extent([-125.0, -66.0, 24.0, 50.5], crs=ccrs.PlateCarree())
+    ax.set_extent(list(view.extent), crs=ccrs.PlateCarree())
+    if view.suffix:
+        ax.set_aspect("auto")
     ax.set_facecolor(WATER_COLOR)
 
     land = cfeature.NaturalEarthFeature(
@@ -1997,12 +2225,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     map_polygons = product.maps.get(map_label, {})
     order = preview_order_for_map(map_label)
     transform = ccrs.PlateCarree()
-    raw_geometries: dict[str, Any] = {}
-    for label in order:
-        polygons = map_polygons.get(label, ())
-        geometry = outlook_geometry_for_label(product, map_label, label, polygons)
-        if geometry is not None and not geometry.is_empty:
-            raw_geometries[label] = geometry
+    raw_geometries = raw_geometries_for_map(product, map_label)
 
     visible_fills = visible_outlook_fills_for_map(map_label, raw_geometries, order)
     for label in order:
@@ -2058,7 +2281,7 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
     ax.coastlines(resolution="50m", linewidth=1.0, color="#2e2e2e", zorder=42)
     if is_day48_probability_map(map_label):
         draw_day48_probability_labels(ax, map_polygons, transform)
-    draw_major_city_labels(ax, transform)
+    draw_major_city_labels(ax, transform, extent=view.extent if view.suffix else None)
     if map_label == "day4-8":
         draw_day48_day_labels(ax, product, transform)
 
@@ -2073,7 +2296,10 @@ def render_pts_map_png(product: PtsProduct, map_label: str) -> bytes:
             linewidth=1.0,
         )
     )
-    fig.text(0.015, 0.098, preview_title(product.spec, map_label), fontsize=23, ha="left", va="center")
+    title = preview_title(product.spec, map_label)
+    if view.title_suffix:
+        title = f"{title} - {view.title_suffix}"
+    fig.text(0.015, 0.098, title, fontsize=23, ha="left", va="center")
     fig.text(
         0.015,
         0.066,
@@ -2258,9 +2484,17 @@ def render_preview_bundle(
     pts_text: str | None = None,
     *,
     custom_source: str = "geojson-first",
+    regional_maps: str = DEFAULT_REGIONAL_MAPS,
+    regional_min_risk_level: str = DEFAULT_REGIONAL_MIN_RISK_LEVEL,
+    regional_max_areas: int = DEFAULT_REGIONAL_MAX_AREAS,
 ) -> BundleSnapshot:
     product = choose_custom_product(spec, pts_text, custom_source)
-    return render_product_bundle(product)
+    return render_product_bundle(
+        product,
+        regional_maps=regional_maps,
+        regional_min_risk_level=regional_min_risk_level,
+        regional_max_areas=regional_max_areas,
+    )
 
 
 def preview_snapshot_from_product(product: PtsProduct, images: tuple[MapImage, ...] = ()) -> BundleSnapshot:
@@ -2279,16 +2513,28 @@ def preview_snapshot_from_product(product: PtsProduct, images: tuple[MapImage, .
     )
 
 
-def render_product_bundle(product: PtsProduct) -> BundleSnapshot:
+def render_product_bundle(
+    product: PtsProduct,
+    *,
+    regional_maps: str = DEFAULT_REGIONAL_MAPS,
+    regional_min_risk_level: str = DEFAULT_REGIONAL_MIN_RISK_LEVEL,
+    regional_max_areas: int = DEFAULT_REGIONAL_MAX_AREAS,
+) -> BundleSnapshot:
     images: list[MapImage] = []
-    for map_label in product.spec.expected_order:
-        data = render_pts_map_png(product, map_label)
+    for view in render_views_for_product(
+        product,
+        regional_maps=regional_maps,
+        regional_min_risk_level=regional_min_risk_level,
+        regional_max_areas=regional_max_areas,
+    ):
+        data = render_pts_map_png(product, view.map_label, view=view)
         digest = hashlib.sha256(data).hexdigest()
+        label = view.map_label if not view.suffix else f"{view.map_label}_{view.suffix}"
         images.append(
             MapImage(
-                label=map_label,
-                url=f"{product.source}://{product.product_id}/{map_label}",
-                filename=f"{product.spec.key}_fast_{map_label}.png",
+                label=label,
+                url=f"{product.source}://{product.product_id}/{label}",
+                filename=f"{product.spec.key}_fast_{label}.png",
                 content_type="image/png",
                 sha256=digest,
                 data=data,
@@ -2491,6 +2737,15 @@ def multipart_body(payload: dict[str, Any], images: tuple[MapImage, ...]) -> tup
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
+def discord_image_chunks(images: tuple[MapImage, ...]) -> list[tuple[MapImage, ...]]:
+    if not images:
+        return [()]
+    return [
+        tuple(images[index : index + DISCORD_MAX_FILES_PER_MESSAGE])
+        for index in range(0, len(images), DISCORD_MAX_FILES_PER_MESSAGE)
+    ]
+
+
 def add_query_param(url: str, key: str, value: str) -> str:
     parts = urllib.parse.urlsplit(url)
     query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
@@ -2599,28 +2854,36 @@ def discord_payload(snapshot: BundleSnapshot, *, content_mode: str, include_user
     return payload
 
 
-def post_to_discord_webhook(snapshot: BundleSnapshot, webhook_url: str, *, content_mode: str) -> None:
-    payload = discord_payload(snapshot, content_mode=content_mode, include_username=True)
-    body, content_type = multipart_body(payload, snapshot.images)
-    headers = {"Content-Type": content_type}
-    target_url = add_query_param(webhook_url, "with_components", "true") if payload.get("components") else webhook_url
+def post_to_discord_webhook(snapshot: BundleSnapshot, webhook_url: str, *, content_mode: str) -> int:
+    chunks = discord_image_chunks(snapshot.images)
+    for index, images in enumerate(chunks):
+        chunk_snapshot = dataclasses.replace(snapshot, images=images)
+        payload = discord_payload(
+            chunk_snapshot,
+            content_mode=content_mode if index == 0 else "none",
+            include_username=True,
+        )
+        body, content_type = multipart_body(payload, images)
+        headers = {"Content-Type": content_type}
+        target_url = add_query_param(webhook_url, "with_components", "true") if payload.get("components") else webhook_url
 
-    try:
-        with request(
-            target_url,
-            method="POST",
-            data=body,
-            headers=headers,
-            timeout=30,
-            cache_bust=False,
-        ) as response:
-            response.read()
-            status = getattr(response, "status", response.getcode())
-            if status < 200 or status >= 300:
-                raise BotError(f"Discord webhook returned HTTP {status}")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise BotError(f"Discord webhook returned HTTP {exc.code}: {detail}") from exc
+        try:
+            with request(
+                target_url,
+                method="POST",
+                data=body,
+                headers=headers,
+                timeout=30,
+                cache_bust=False,
+            ) as response:
+                response.read()
+                status = getattr(response, "status", response.getcode())
+                if status < 200 or status >= 300:
+                    raise BotError(f"Discord webhook returned HTTP {status}")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise BotError(f"Discord webhook returned HTTP {exc.code}: {detail}") from exc
+    return len(chunks)
 
 
 def post_to_discord_channel(
@@ -2629,30 +2892,38 @@ def post_to_discord_channel(
     bot_token: str,
     channel_id: str,
     content_mode: str,
-) -> None:
-    payload = discord_payload(snapshot, content_mode=content_mode, include_username=False)
-    body, content_type = multipart_body(payload, snapshot.images)
-    headers = {
-        "Authorization": f"Bot {bot_token}",
-        "Content-Type": content_type,
-    }
+) -> int:
     url = f"https://discord.com/api/v10/channels/{urllib.parse.quote(channel_id)}/messages"
-    try:
-        with request(
-            url,
-            method="POST",
-            data=body,
-            headers=headers,
-            timeout=30,
-            cache_bust=False,
-        ) as response:
-            response.read()
-            status = getattr(response, "status", response.getcode())
-            if status < 200 or status >= 300:
-                raise BotError(f"Discord channel post returned HTTP {status}")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise BotError(f"Discord channel post returned HTTP {exc.code}: {detail}") from exc
+    chunks = discord_image_chunks(snapshot.images)
+    for index, images in enumerate(chunks):
+        chunk_snapshot = dataclasses.replace(snapshot, images=images)
+        payload = discord_payload(
+            chunk_snapshot,
+            content_mode=content_mode if index == 0 else "none",
+            include_username=False,
+        )
+        body, content_type = multipart_body(payload, images)
+        headers = {
+            "Authorization": f"Bot {bot_token}",
+            "Content-Type": content_type,
+        }
+        try:
+            with request(
+                url,
+                method="POST",
+                data=body,
+                headers=headers,
+                timeout=30,
+                cache_bust=False,
+            ) as response:
+                response.read()
+                status = getattr(response, "status", response.getcode())
+                if status < 200 or status >= 300:
+                    raise BotError(f"Discord channel post returned HTTP {status}")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise BotError(f"Discord channel post returned HTTP {exc.code}: {detail}") from exc
+    return len(chunks)
 
 
 def post_bundle(
@@ -2672,11 +2943,11 @@ def post_bundle(
         write_bundle_files(snapshot, dry_run_dir)
         return f"dry-run wrote {len(snapshot.images)} image(s) to {dry_run_dir / snapshot.spec.key}"
     if webhook_url:
-        post_to_discord_webhook(snapshot, webhook_url, content_mode=content_mode)
-        return f"posted {len(snapshot.images)} image(s) to Discord webhook"
+        message_count = post_to_discord_webhook(snapshot, webhook_url, content_mode=content_mode)
+        return f"posted {len(snapshot.images)} image(s) to Discord webhook in {message_count} message(s)"
     if bot_token and channel_id:
-        post_to_discord_channel(snapshot, bot_token=bot_token, channel_id=channel_id, content_mode=content_mode)
-        return f"posted {len(snapshot.images)} image(s) to Discord channel"
+        message_count = post_to_discord_channel(snapshot, bot_token=bot_token, channel_id=channel_id, content_mode=content_mode)
+        return f"posted {len(snapshot.images)} image(s) to Discord channel in {message_count} message(s)"
     raise BotError("DISCORD_WEBHOOK_URL or DISCORD_BOT_TOKEN + DISCORD_CHANNEL_ID is required unless --dry-run is used")
 
 
@@ -2904,9 +3175,20 @@ class OutlookBot:
                             f"{reason}:preview",
                             prime_only=prime_only,
                         )
-                        preview = render_product_bundle(product)
+                        preview = render_product_bundle(
+                            product,
+                            regional_maps=self.args.regional_maps,
+                            regional_min_risk_level=self.args.regional_min_risk_level,
+                            regional_max_areas=self.args.regional_max_areas,
+                        )
                     else:
-                        preview = render_preview_bundle(spec, custom_source=self.args.custom_source)
+                        preview = render_preview_bundle(
+                            spec,
+                            custom_source=self.args.custom_source,
+                            regional_maps=self.args.regional_maps,
+                            regional_min_risk_level=self.args.regional_min_risk_level,
+                            regional_max_areas=self.args.regional_max_areas,
+                        )
                     if not changed_only or not bundle_is_posted(self.state, preview, state_key=preview_key):
                         self.handle_snapshot(
                             preview,
@@ -2945,12 +3227,20 @@ class OutlookBot:
                         product = choose_custom_product(spec, pts_text, self.args.custom_source)
                         metadata = preview_snapshot_from_product(product)
                         preposted = self.prepost_discussion(metadata, f"{reason}:preview")
-                        preview = render_product_bundle(product)
+                        preview = render_product_bundle(
+                            product,
+                            regional_maps=self.args.regional_maps,
+                            regional_min_risk_level=self.args.regional_min_risk_level,
+                            regional_max_areas=self.args.regional_max_areas,
+                        )
                     else:
                         preview = render_preview_bundle(
                             spec,
                             pts_text=pts_text,
                             custom_source=self.args.custom_source,
+                            regional_maps=self.args.regional_maps,
+                            regional_min_risk_level=self.args.regional_min_risk_level,
+                            regional_max_areas=self.args.regional_max_areas,
                         )
                     self.handle_snapshot(
                         preview,
@@ -3124,6 +3414,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=env_bool("SPC_ALWAYS_POST_DAY48", False),
         help="when risk filtering is enabled, still post any Day 4-8 outlook with a 15% or 30% area",
+    )
+    parser.add_argument(
+        "--regional-maps",
+        default=os.getenv("SPC_REGIONAL_MAPS", DEFAULT_REGIONAL_MAPS),
+        help=(
+            "comma-separated custom maps that should get auto-zoom regional images; "
+            "use 'none' or 'all'"
+        ),
+    )
+    parser.add_argument(
+        "--regional-min-risk-level",
+        choices=("tstm", "mrgl", "slgt", "enh", "mdt", "high"),
+        default=normalize_min_risk(
+            os.getenv("SPC_REGIONAL_MIN_RISK_LEVEL", DEFAULT_REGIONAL_MIN_RISK_LEVEL)
+        ),
+        help="minimum categorical risk used to choose Day 1-3 regional zoom centers",
+    )
+    parser.add_argument(
+        "--regional-max-areas",
+        type=int,
+        default=env_int("SPC_REGIONAL_MAX_AREAS", DEFAULT_REGIONAL_MAX_AREAS),
+        help="maximum auto-zoom regional images per enabled map",
     )
     parser.add_argument(
         "--poll-seconds",

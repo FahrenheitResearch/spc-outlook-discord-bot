@@ -227,6 +227,55 @@ class ParserTests(unittest.TestCase):
         self.assertIn(b'name="files[0]"; filename="day1_categorical.png"', body)
         self.assertIn(json.dumps({"username": "Fast Severe Outlook Bot"}).encode("utf-8"), body)
 
+    def test_discord_image_chunks_respects_attachment_limit(self) -> None:
+        images = tuple(
+            bot.MapImage(
+                label=f"map_{index}",
+                url="test://map",
+                filename=f"map_{index}.png",
+                content_type="image/png",
+                sha256=str(index),
+                data=b"image",
+            )
+            for index in range(11)
+        )
+
+        chunks = bot.discord_image_chunks(images)
+
+        self.assertEqual([len(chunk) for chunk in chunks], [10, 1])
+
+    def test_regional_views_split_two_enhanced_centers(self) -> None:
+        spec = bot.BUNDLES[0]
+        product = bot.PtsProduct(
+            spec=spec,
+            product_id="test",
+            title=spec.name,
+            issued="now",
+            valid="later",
+            updated="now",
+            source="geojson",
+            maps={
+                "categorical": {
+                    "ENH": (
+                        Polygon(((-101.0, 33.0), (-99.0, 33.0), (-99.0, 35.0), (-101.0, 35.0))),
+                        Polygon(((-82.0, 39.0), (-79.0, 39.0), (-79.0, 42.0), (-82.0, 42.0))),
+                    )
+                }
+            },
+        )
+
+        views = bot.regional_render_views(
+            product,
+            "categorical",
+            regional_maps="categorical",
+            regional_min_risk_level="enh",
+            regional_max_areas=2,
+        )
+
+        self.assertEqual([view.suffix for view in views], ["regional_1", "regional_2"])
+        self.assertLess(views[0].extent[1] - views[0].extent[0], bot.MAP_EXTENT[1] - bot.MAP_EXTENT[0])
+        self.assertLess(views[1].extent[1] - views[1].extent[0], bot.MAP_EXTENT[1] - bot.MAP_EXTENT[0])
+
     def test_pts_coord_parser_handles_longitudes_west_of_100(self) -> None:
         self.assertEqual(bot.parse_pts_coord("37009500"), (-95.0, 37.0))
         self.assertEqual(bot.parse_pts_coord("34210021"), (-100.21, 34.21))
