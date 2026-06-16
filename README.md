@@ -158,6 +158,23 @@ SPC_POST_CURRENT_ON_START=0
 
 Use `pts-only` for speed-first live testing. Use `geojson-only` for the most conservative public default. Keep the webhook URL in `/etc/spc-outlook-bot.env`, not in git.
 
+Recommended private test-channel settings when you want to see both products:
+
+```text
+DISCORD_USERNAME=Outlook Notification
+SPC_RENDER_MODE=custom-first
+SPC_CUSTOM_SOURCE=pts-only
+SPC_MESSAGE_CONTENT=link
+SPC_PREPOST_DISCUSSION=1
+SPC_FETCH_RETRY_SECONDS=1
+SPC_FETCH_ATTEMPTS=8
+SPC_TRIGGER_FETCH_ATTEMPTS=90
+SPC_STATE_FILE=data/private-both-state.json
+SPC_DRY_RUN_DIR=data/private-both-dry-run
+```
+
+That sends the unofficial fast render first, then sends the literal unmodified official SPC image bundle when those files appear. Use a separate state file if this private profile runs next to a public/simple profile.
+
 ## Fastest Mode With NWWS
 
 Install `nwws-rs` and set your NWWS-OI credentials:

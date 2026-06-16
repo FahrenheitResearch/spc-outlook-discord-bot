@@ -3201,18 +3201,22 @@ class OutlookBot:
                         post_key = self.configured_post_key(metadata)
                         if changed_only and bundle_is_posted(self.state, metadata, state_key=preview_key, post_key=post_key):
                             log(f"{metadata.spec.name}: unchanged ({metadata.product_id})")
-                            continue
-                        preposted = self.prepost_discussion(
-                            metadata,
-                            f"{reason}:preview",
-                            prime_only=prime_only,
-                        )
-                        preview = render_product_bundle(
-                            product,
-                            regional_maps=self.args.regional_maps,
-                            regional_min_risk_level=self.args.regional_min_risk_level,
-                            regional_max_areas=self.args.regional_max_areas,
-                        )
+                            if not render_mode_posts_official(self.args.render_mode):
+                                continue
+                            preview = metadata
+                            preposted = True
+                        else:
+                            preposted = self.prepost_discussion(
+                                metadata,
+                                f"{reason}:preview",
+                                prime_only=prime_only,
+                            )
+                            preview = render_product_bundle(
+                                product,
+                                regional_maps=self.args.regional_maps,
+                                regional_min_risk_level=self.args.regional_min_risk_level,
+                                regional_max_areas=self.args.regional_max_areas,
+                            )
                     else:
                         preview = render_preview_bundle(
                             spec,
