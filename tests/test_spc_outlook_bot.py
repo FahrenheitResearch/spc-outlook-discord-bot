@@ -634,6 +634,36 @@ class ParserTests(unittest.TestCase):
             bot.snapshot_passes_risk_filter(merged, min_risk_level="enh", always_post_day48=False)[0]
         )
 
+    def test_official_followup_rejects_stale_image_product(self) -> None:
+        metadata = bot.BundleSnapshot(
+            spec=bot.BUNDLES[1],
+            title="Day 2 Convective Outlook Fast Custom Preview",
+            updated="1225 AM CDT WED JUN 17 2026",
+            product_id="preview:PTSDY2:181200Z",
+            page_url=bot.BUNDLES[1].page_url,
+            images=(),
+            issued="1225 AM CDT WED JUN 17 2026",
+            valid="181200Z - 191200Z",
+        )
+        stale_official = dataclasses.replace(
+            metadata,
+            title="Storm Prediction Center Jun 16, 2026 1730 UTC Day 2 Convective Outlook",
+            updated="Tue Jun 16 18:27:01 UTC 2026",
+            product_id="PTSDY2202606161730",
+        )
+        fresh_official = dataclasses.replace(
+            metadata,
+            title="Storm Prediction Center Jun 17, 2026 0600 UTC Day 2 Convective Outlook",
+            updated="Wed Jun 17 05:31:00 UTC 2026",
+            product_id="PTSDY2202606170600",
+        )
+
+        stale_ok, stale_reason = bot.official_snapshot_is_fresh_for_metadata(stale_official, metadata)
+        fresh_ok, _fresh_reason = bot.official_snapshot_is_fresh_for_metadata(fresh_official, metadata)
+
+        self.assertFalse(stale_ok, stale_reason)
+        self.assertTrue(fresh_ok)
+
     def test_custom_first_polling_checks_pending_official_when_preview_seen(self) -> None:
         spec = bot.BUNDLES[0]
         product = bot.parse_pts_text(PTS_DAY1_TEXT, spec)

@@ -182,6 +182,7 @@ BUNDLES: tuple[BundleSpec, ...] = (
 
 STATE_RECENT_POST_LIMIT = 16
 TRANSIENT_HTTP_CODES = {404, 408, 409, 425, 429, 500, 502, 503, 504}
+OFFICIAL_FRESHNESS_TOLERANCE = timedelta(minutes=20)
 
 
 class BotError(RuntimeError):
@@ -863,15 +864,29 @@ def geojson_time_range(properties: dict[str, Any]) -> tuple[str, str, str]:
     return format_geojson_time(issue) or issue, valid_range, compact_valid or str(properties.get("VALID") or "")
 
 
-def product_issue_datetime(product: PtsProduct) -> datetime | None:
-    value = product.updated or product.issued
+def parse_product_time(value: str) -> datetime | None:
     if not value:
         return None
-    for pattern in ("%Y-%m-%d %H%MZ", "%Y-%m-%dT%H:%M:%SZ"):
+    for pattern in (
+        "%Y-%m-%d %H%MZ",
+        "%Y-%m-%dT%H:%M:%SZ",
+        "%a %b %d %H:%M:%S UTC %Y",
+    ):
         try:
             return datetime.strptime(value, pattern).replace(tzinfo=timezone.utc)
         except ValueError:
             pass
+    title_match = re.search(
+        r"\b([A-Z][a-z]{2})\s+(\d{1,2}),\s+(\d{4})\s+(\d{2})(\d{2})\s+UTC\b",
+        value,
+    )
+    if title_match:
+        month, day, year, hour, minute = title_match.groups()
+        with contextlib.suppress(ValueError):
+            return datetime.strptime(
+                f"{year} {month} {int(day):02d} {hour}{minute}",
+                "%Y %b %d %H%M",
+            ).replace(tzinfo=timezone.utc)
     match = re.search(
         r"\b(\d{1,2})(\d{2})\s+(AM|PM)\s+(CST|CDT)\s+[A-Z]{3}\s+([A-Z]{3})\s+(\d{1,2})\s+(\d{4})\b",
         value.upper(),
@@ -896,6 +911,50 @@ def product_issue_datetime(product: PtsProduct) -> datetime | None:
     except ValueError:
         return None
     return parsed.replace(tzinfo=local_tz).astimezone(timezone.utc)
+
+
+def product_issue_datetime(product: PtsProduct) -> datetime | None:
+    return parse_product_time(product.updated or product.issued)
+
+
+def official_product_id_datetime(product_id: str) -> datetime | None:
+    match = re.search(r"(20\d{10})", product_id)
+    if not match:
+        return None
+    with contextlib.suppress(ValueError):
+        return datetime.strptime(match.group(1), "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+    return None
+
+
+def snapshot_best_datetime(snapshot: BundleSnapshot, *, include_issued: bool = True) -> datetime | None:
+    candidates = [
+        official_product_id_datetime(snapshot.product_id),
+        parse_product_time(snapshot.updated),
+        parse_product_time(snapshot.title),
+    ]
+    if include_issued:
+        candidates.append(parse_product_time(snapshot.issued))
+    valid = [candidate for candidate in candidates if candidate is not None]
+    return max(valid) if valid else None
+
+
+def official_snapshot_is_fresh_for_metadata(
+    official: BundleSnapshot,
+    metadata: BundleSnapshot | None,
+) -> tuple[bool, str]:
+    if metadata is None:
+        return True, "no preview metadata available"
+    preview_time = parse_product_time(metadata.updated) or parse_product_time(metadata.issued)
+    official_time = snapshot_best_datetime(official, include_issued=False)
+    if preview_time is None or official_time is None:
+        return True, "not enough timestamp metadata to prove staleness"
+    if official_time + OFFICIAL_FRESHNESS_TOLERANCE < preview_time:
+        return (
+            False,
+            f"official product time {official_time.isoformat()} is older than preview issue "
+            f"{preview_time.isoformat()}",
+        )
+    return True, "official product is fresh enough"
 
 
 def pts_product_from_text_or_feed(spec: BundleSpec, pts_text: str | None = None) -> PtsProduct:
@@ -3300,6 +3359,9 @@ class OutlookBot:
                         delay=self.args.fetch_retry_seconds,
                     )
                     snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
+                    is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, official_metadata)
+                    if not is_fresh:
+                        raise BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
                     if changed_only and bundle_is_posted(self.state, snapshot):
                         self.clear_official_pending(spec)
                         continue
@@ -3369,6 +3431,9 @@ class OutlookBot:
                         delay=self.args.fetch_retry_seconds,
                     )
                     snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
+                    is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, official_metadata)
+                    if not is_fresh:
+                        raise BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
                     self.handle_snapshot(snapshot, reason)
                     self.clear_official_pending(spec)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
