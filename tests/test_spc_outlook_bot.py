@@ -886,6 +886,37 @@ class ParserTests(unittest.TestCase):
         self.assertIn("<https://www.spc.noaa.gov/products/outlook/day1otlk.html>", payload["content"])
         self.assertNotIn("embeds", payload)
 
+    def test_official_spc_image_link_content_omits_discussion_embed(self) -> None:
+        snapshot = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1",
+            updated="Wed Jun 17 20:04:09 UTC 2026",
+            product_id="PTSDY1202606172000",
+            page_url="https://www.spc.noaa.gov/products/outlook/day1otlk.html",
+            images=(
+                bot.MapImage(
+                    label="categorical",
+                    url="https://www.spc.noaa.gov/products/outlook/day1otlk_2000.png",
+                    filename="day1_categorical.png",
+                    content_type="image/png",
+                    sha256="abc",
+                    data=b"image",
+                ),
+            ),
+            issued="0255 PM CDT WED JUN 17 2026",
+            valid="172000Z - 181200Z",
+            discussion="Long raw discussion that should not be embedded.",
+            discussion_url="https://tgftp.nws.noaa.gov/data/raw/ac/acus01.kwns.swo.dy1.txt",
+        )
+
+        payload = bot.discord_payload(snapshot, content_mode="link", include_username=False)
+
+        self.assertIn("Day 1 Convective Outlook", payload["content"])
+        self.assertIn("Updated: Wed Jun 17 20:04:09 UTC 2026", payload["content"])
+        self.assertIn("<https://www.spc.noaa.gov/products/outlook/day1otlk.html>", payload["content"])
+        self.assertNotIn("embeds", payload)
+        self.assertNotIn("components", payload)
+
     def test_prepost_discussion_sends_text_only_before_images(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             args = argparse.Namespace(

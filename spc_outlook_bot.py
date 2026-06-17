@@ -2852,6 +2852,10 @@ def snapshot_with_raw_discussion(snapshot: BundleSnapshot) -> BundleSnapshot:
     )
 
 
+def snapshot_uses_official_spc_images(snapshot: BundleSnapshot) -> bool:
+    return bool(snapshot.images) and all(image.url.startswith(SPC_BASE) for image in snapshot.images)
+
+
 def discord_discussion_embed(snapshot: BundleSnapshot) -> dict[str, Any] | None:
     if not (snapshot.discussion or snapshot.issued or snapshot.valid):
         return None
@@ -2862,7 +2866,7 @@ def discord_discussion_embed(snapshot: BundleSnapshot) -> dict[str, Any] | None:
     if snapshot.issued:
         fields.append({"name": "Issued", "value": snapshot.issued, "inline": True})
     fields.append({"name": "Source", "value": "NOAA/NWS Storm Prediction Center raw text", "inline": False})
-    official_images = bool(snapshot.images) and all(image.url.startswith(SPC_BASE) for image in snapshot.images)
+    official_images = snapshot_uses_official_spc_images(snapshot)
     footer_text = (
         "Official SPC image files - notification by Outlook Notification"
         if official_images
@@ -2897,15 +2901,17 @@ def discord_payload(snapshot: BundleSnapshot, *, content_mode: str, include_user
     if include_username:
         payload["username"] = os.getenv("DISCORD_USERNAME", "Fast Severe Outlook Bot")
     if content_mode == "link":
+        official_images = snapshot_uses_official_spc_images(snapshot)
         content_lines = [snapshot.spec.name, f"Updated: {snapshot.updated or snapshot.product_id}"]
         if snapshot.images and snapshot.page_url:
             content_lines.append(f"Official SPC discussion/product: <{snapshot.page_url}>")
         payload["content"] = "\n".join(content_lines)
-        embed = discord_discussion_embed(snapshot)
-        if embed:
-            payload["embeds"] = [embed]
-        if snapshot.discussion_url:
-            payload["components"] = [discord_link_button("View Discussion", snapshot.discussion_url)]
+        if not official_images:
+            embed = discord_discussion_embed(snapshot)
+            if embed:
+                payload["embeds"] = [embed]
+            if snapshot.discussion_url:
+                payload["components"] = [discord_link_button("View Discussion", snapshot.discussion_url)]
     elif content_mode == "short":
         payload["content"] = f"{snapshot.spec.name} - {snapshot.updated or snapshot.product_id}"
     elif content_mode == "debug":
@@ -3002,7 +3008,7 @@ def post_bundle(
     content_mode: str,
     include_discussion: bool = True,
 ) -> str:
-    if content_mode == "link" and include_discussion:
+    if content_mode == "link" and include_discussion and not snapshot_uses_official_spc_images(snapshot):
         snapshot = snapshot_with_raw_discussion(snapshot)
     if dry_run:
         write_bundle_files(snapshot, dry_run_dir)
