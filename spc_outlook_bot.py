@@ -3362,10 +3362,11 @@ class OutlookBot:
                     is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, official_metadata)
                     if not is_fresh:
                         raise BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
+                    pending_official = self.official_pending_for(spec, official_metadata)
                     if changed_only and bundle_is_posted(self.state, snapshot):
                         self.clear_official_pending(spec)
                         continue
-                    self.handle_snapshot(snapshot, reason, prime_only=prime_only)
+                    self.handle_snapshot(snapshot, reason, prime_only=prime_only and not pending_official)
                     self.clear_official_pending(spec)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.
                 log(f"{spec.name}: {exc}")
