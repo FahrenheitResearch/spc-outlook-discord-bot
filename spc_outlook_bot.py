@@ -89,6 +89,7 @@ class MapImage:
     content_type: str
     sha256: str
     data: bytes
+    last_modified: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -462,6 +463,7 @@ def download_image(bundle_key: str, label: str, url: str, timeout: int = 20) -> 
     with request(url, timeout=timeout) as response:
         data = response.read()
         content_type = response.headers.get("Content-Type", "application/octet-stream")
+        last_modified = response.headers.get("Last-Modified", "")
     if not content_type.lower().startswith("image/"):
         raise BotError(f"{url} returned {content_type}, not an image")
     if len(data) < 1024:
@@ -475,6 +477,7 @@ def download_image(bundle_key: str, label: str, url: str, timeout: int = 20) -> 
         content_type=content_type,
         sha256=digest,
         data=data,
+        last_modified=last_modified,
     )
 
 
@@ -926,6 +929,17 @@ def official_product_id_datetime(product_id: str) -> datetime | None:
     return None
 
 
+def parse_http_datetime(value: str) -> datetime | None:
+    if not value:
+        return None
+    with contextlib.suppress(TypeError, ValueError, IndexError, OverflowError):
+        parsed = email.utils.parsedate_to_datetime(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return None
+
+
 def snapshot_best_datetime(snapshot: BundleSnapshot, *, include_issued: bool = True) -> datetime | None:
     candidates = [
         official_product_id_datetime(snapshot.product_id),
@@ -946,14 +960,36 @@ def official_snapshot_is_fresh_for_metadata(
         return True, "no preview metadata available"
     preview_time = parse_product_time(metadata.updated) or parse_product_time(metadata.issued)
     official_time = snapshot_best_datetime(official, include_issued=False)
-    if preview_time is None or official_time is None:
+    if preview_time is None:
         return True, "not enough timestamp metadata to prove staleness"
-    if official_time + OFFICIAL_FRESHNESS_TOLERANCE < preview_time:
+    if official_time is not None and official_time + OFFICIAL_FRESHNESS_TOLERANCE < preview_time:
         return (
             False,
             f"official product time {official_time.isoformat()} is older than preview issue "
             f"{preview_time.isoformat()}",
         )
+    if snapshot_uses_official_spc_images(official):
+        stale_images = []
+        missing_images = []
+        for image in official.images:
+            image_time = parse_http_datetime(image.last_modified)
+            if image_time is None:
+                missing_images.append(image.label)
+            elif image_time + OFFICIAL_FRESHNESS_TOLERANCE < preview_time:
+                stale_images.append(f"{image.label} ({image.last_modified})")
+        if stale_images:
+            return (
+                False,
+                f"official image file(s) older than preview issue {preview_time.isoformat()}: "
+                f"{', '.join(stale_images)}",
+            )
+        if missing_images:
+            return (
+                False,
+                "official image file freshness headers missing: " + ", ".join(missing_images),
+            )
+    elif official_time is None:
+        return True, "not enough official timestamp metadata to prove staleness"
     return True, "official product is fresh enough"
 
 
@@ -2749,6 +2785,7 @@ def write_bundle_files(snapshot: BundleSnapshot, out_dir: Path) -> None:
                 "content_type": image.content_type,
                 "sha256": image.sha256,
                 "bytes": len(image.data),
+                "last_modified": image.last_modified,
             }
             for image in snapshot.images
         ],
@@ -3033,6 +3070,33 @@ def snapshot_with_retries(spec: BundleSpec, attempts: int, delay: float) -> Bund
             if attempt < attempts:
                 time.sleep(delay)
     raise BotError(f"{spec.name}: failed after {attempts} attempts: {last_error}") from last_error
+
+
+def official_snapshot_with_retries(
+    spec: BundleSpec,
+    metadata: BundleSnapshot | None,
+    attempts: int,
+    delay: float,
+) -> BundleSnapshot:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            snapshot = merge_official_snapshot_metadata(fetch_bundle(spec), metadata)
+            is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, metadata)
+            if is_fresh:
+                return snapshot
+            last_error = BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
+        except Exception as exc:  # noqa: BLE001 - logged and retried.
+            last_error = exc
+            should_retry = True
+            if isinstance(exc, urllib.error.HTTPError) and exc.code not in TRANSIENT_HTTP_CODES:
+                should_retry = False
+            if not should_retry or attempt >= attempts:
+                break
+        if attempt < attempts:
+            log(f"{spec.name}: official fetch attempt {attempt}/{attempts} not ready: {last_error}")
+            time.sleep(delay)
+    raise BotError(f"{spec.name}: failed after {attempts} official fetch attempts: {last_error}") from last_error
 
 
 def merge_official_snapshot_metadata(
@@ -3359,15 +3423,12 @@ class OutlookBot:
                         continue
                     if official_metadata is None:
                         official_metadata = self.official_risk_metadata(spec)
-                    snapshot = snapshot_with_retries(
+                    snapshot = official_snapshot_with_retries(
                         spec,
+                        official_metadata,
                         attempts=self.args.fetch_attempts,
                         delay=self.args.fetch_retry_seconds,
                     )
-                    snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
-                    is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, official_metadata)
-                    if not is_fresh:
-                        raise BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
                     pending_official = self.official_pending_for(spec, official_metadata)
                     if changed_only and bundle_is_posted(self.state, snapshot):
                         self.clear_official_pending(spec)
@@ -3432,15 +3493,12 @@ class OutlookBot:
                             else None
                         )
                         official_metadata = self.official_risk_metadata(spec, pts_text)
-                    snapshot = snapshot_with_retries(
+                    snapshot = official_snapshot_with_retries(
                         spec,
+                        official_metadata,
                         attempts=max(self.args.fetch_attempts, self.args.trigger_fetch_attempts),
                         delay=self.args.fetch_retry_seconds,
                     )
-                    snapshot = merge_official_snapshot_metadata(snapshot, official_metadata)
-                    is_fresh, freshness_reason = official_snapshot_is_fresh_for_metadata(snapshot, official_metadata)
-                    if not is_fresh:
-                        raise BotError(f"{spec.name}: official images are not current yet; {freshness_reason}")
                     self.handle_snapshot(snapshot, reason)
                     self.clear_official_pending(spec)
             except Exception as exc:  # noqa: BLE001 - keep the bot alive.

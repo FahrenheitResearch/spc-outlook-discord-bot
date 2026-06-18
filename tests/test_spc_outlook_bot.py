@@ -664,6 +664,101 @@ class ParserTests(unittest.TestCase):
         self.assertFalse(stale_ok, stale_reason)
         self.assertTrue(fresh_ok)
 
+    def test_official_followup_rejects_stale_individual_image_files(self) -> None:
+        metadata = bot.BundleSnapshot(
+            spec=bot.BUNDLES[0],
+            title="Day 1 Convective Outlook Fast Custom Preview",
+            updated="1130 AM CDT THU JUN 18 2026",
+            product_id="preview:PTSDY1:181630Z",
+            page_url=bot.BUNDLES[0].page_url,
+            images=(),
+            issued="1130 AM CDT THU JUN 18 2026",
+            valid="181630Z - 191200Z",
+        )
+        stale_image = bot.MapImage(
+            "categorical",
+            "https://www.spc.noaa.gov/products/outlook/day1otlk_1630.png",
+            "day1_categorical.png",
+            "image/png",
+            "old",
+            b"old",
+            "Wed, 17 Jun 2026 20:04:09 GMT",
+        )
+        fresh_image = bot.MapImage(
+            "wind",
+            "https://www.spc.noaa.gov/products/outlook/day1probotlk_1630_wind.png",
+            "day1_wind.png",
+            "image/png",
+            "new",
+            b"new",
+            "Thu, 18 Jun 2026 16:26:25 GMT",
+        )
+        official = dataclasses.replace(
+            metadata,
+            title="Storm Prediction Center Jun 18, 2026 1630 UTC Day 1 Convective Outlook",
+            updated="Thu Jun 18 16:16:01 UTC 2026",
+            product_id="PTSDY1202606181630",
+            images=(stale_image, fresh_image),
+        )
+
+        fresh_ok, reason = bot.official_snapshot_is_fresh_for_metadata(official, metadata)
+
+        self.assertFalse(fresh_ok, reason)
+        self.assertIn("categorical", reason)
+
+    def test_official_snapshot_retries_until_each_image_file_is_fresh(self) -> None:
+        spec = bot.BUNDLES[0]
+        metadata = bot.BundleSnapshot(
+            spec=spec,
+            title="Day 1 Convective Outlook Fast Custom Preview",
+            updated="1130 AM CDT THU JUN 18 2026",
+            product_id="preview:PTSDY1:181630Z",
+            page_url=spec.page_url,
+            images=(),
+            issued="1130 AM CDT THU JUN 18 2026",
+            valid="181630Z - 191200Z",
+        )
+        stale = bot.MapImage(
+            "categorical",
+            "https://www.spc.noaa.gov/products/outlook/day1otlk_1630.png",
+            "day1_categorical.png",
+            "image/png",
+            "old",
+            b"old",
+            "Wed, 17 Jun 2026 20:04:09 GMT",
+        )
+        fresh = dataclasses.replace(stale, sha256="new", data=b"new", last_modified="Thu, 18 Jun 2026 16:27:01 GMT")
+        snapshots = iter(
+            (
+                dataclasses.replace(
+                    metadata,
+                    title="Storm Prediction Center Jun 18, 2026 1630 UTC Day 1 Convective Outlook",
+                    updated="Thu Jun 18 16:16:01 UTC 2026",
+                    product_id="PTSDY1202606181630",
+                    images=(stale,),
+                ),
+                dataclasses.replace(
+                    metadata,
+                    title="Storm Prediction Center Jun 18, 2026 1630 UTC Day 1 Convective Outlook",
+                    updated="Thu Jun 18 16:16:01 UTC 2026",
+                    product_id="PTSDY1202606181630",
+                    images=(fresh,),
+                ),
+            )
+        )
+        original_fetch_bundle = bot.fetch_bundle
+        original_sleep = bot.time.sleep
+        try:
+            bot.fetch_bundle = lambda _spec: next(snapshots)  # type: ignore[assignment]
+            bot.time.sleep = lambda _seconds: None
+
+            result = bot.official_snapshot_with_retries(spec, metadata, attempts=2, delay=0)
+        finally:
+            bot.fetch_bundle = original_fetch_bundle  # type: ignore[assignment]
+            bot.time.sleep = original_sleep
+
+        self.assertEqual(result.images[0].sha256, "new")
+
     def test_custom_first_polling_checks_pending_official_when_preview_seen(self) -> None:
         spec = bot.BUNDLES[0]
         product = bot.parse_pts_text(PTS_DAY1_TEXT, spec)
@@ -706,23 +801,28 @@ class ParserTests(unittest.TestCase):
             calls: list[tuple[str, str]] = []
             original_bundles = bot.BUNDLES
             original_fetch_raw = bot.fetch_raw_pts_text_for_spec
-            original_snapshot_with_retries = bot.snapshot_with_retries
+            original_official_snapshot_with_retries = bot.official_snapshot_with_retries
             try:
                 bot.BUNDLES = (spec,)
                 bot.fetch_raw_pts_text_for_spec = lambda _spec: PTS_DAY1_TEXT
 
-                def fake_snapshot_with_retries(_spec: bot.BundleSpec, attempts: int, delay: float) -> bot.BundleSnapshot:
+                def fake_official_snapshot_with_retries(
+                    _spec: bot.BundleSpec,
+                    _metadata: bot.BundleSnapshot | None,
+                    attempts: int,
+                    delay: float,
+                ) -> bot.BundleSnapshot:
                     calls.append(("official_fetch", _spec.key))
                     return official
 
-                bot.snapshot_with_retries = fake_snapshot_with_retries
+                bot.official_snapshot_with_retries = fake_official_snapshot_with_retries
                 runner.handle_snapshot = lambda snapshot, reason, **kwargs: calls.append(("handle", snapshot.product_id))
 
                 runner.refresh_all("poll", changed_only=True)
             finally:
                 bot.BUNDLES = original_bundles
                 bot.fetch_raw_pts_text_for_spec = original_fetch_raw
-                bot.snapshot_with_retries = original_snapshot_with_retries
+                bot.official_snapshot_with_retries = original_official_snapshot_with_retries
 
             self.assertIn(("official_fetch", "day1"), calls)
             self.assertIn(("handle", "official:day1:202606131630"), calls)
@@ -761,23 +861,28 @@ class ParserTests(unittest.TestCase):
             calls: list[tuple[str, str]] = []
             original_bundles = bot.BUNDLES
             original_fetch_raw = bot.fetch_raw_pts_text_for_spec
-            original_snapshot_with_retries = bot.snapshot_with_retries
+            original_official_snapshot_with_retries = bot.official_snapshot_with_retries
             try:
                 bot.BUNDLES = (spec,)
                 bot.fetch_raw_pts_text_for_spec = lambda _spec: PTS_DAY1_TEXT
 
-                def fake_snapshot_with_retries(_spec: bot.BundleSpec, attempts: int, delay: float) -> bot.BundleSnapshot:
+                def fake_official_snapshot_with_retries(
+                    _spec: bot.BundleSpec,
+                    _metadata: bot.BundleSnapshot | None,
+                    attempts: int,
+                    delay: float,
+                ) -> bot.BundleSnapshot:
                     calls.append(("official_fetch", _spec.key))
                     return metadata
 
-                bot.snapshot_with_retries = fake_snapshot_with_retries
+                bot.official_snapshot_with_retries = fake_official_snapshot_with_retries
                 runner.handle_snapshot = lambda snapshot, reason, **kwargs: calls.append(("handle", snapshot.product_id))
 
                 runner.refresh_all("poll", changed_only=True)
             finally:
                 bot.BUNDLES = original_bundles
                 bot.fetch_raw_pts_text_for_spec = original_fetch_raw
-                bot.snapshot_with_retries = original_snapshot_with_retries
+                bot.official_snapshot_with_retries = original_official_snapshot_with_retries
 
             self.assertEqual([], calls)
 
